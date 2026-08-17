@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Order Management</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f5f3ef;
+    color: #211c16;
+  }
+  #app { max-width: 480px; margin: 0 auto; padding: 16px 14px 60px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; position: sticky; top: 0; background: #f5f3ef; padding: 10px 0; z-index: 5; }
+  .tab-btn {
+    flex: 1; padding: 10px 4px; border-radius: 10px; border: 1px solid #e4ddd2;
+    background: #fff; color: #7a7166; font-size: 11px; font-weight: 600; cursor: pointer;
+    position: relative;
+  }
+  .tab-btn.active { border-color: #b5652e; background: #fbeadb; color: #a14f19; }
+  .badge {
+    position: absolute; top: -4px; right: 10px; background: #d43b3b; color: white;
+    font-size: 10px; font-weight: 700; border-radius: 10px; padding: 1px 6px; min-width: 16px; text-align: center;
+  }
+  label { font-size: 13px; color: #6b6459; display: block; margin-bottom: 5px; font-weight: 500; }
+  input[type=text], input[type=email], input[type=password], textarea {
+    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #e4ddd2;
+    font-size: 14px; font-family: inherit; background: #fff; color: #211c16;
+  }
+  textarea { resize: vertical; }
+  .field { margin-bottom: 14px; }
+  .field-hint { font-size: 11.5px; color: #9a9084; margin-top: 4px; }
+  .photo-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; margin-bottom: 8px; }
+  .photo-thumb { position: relative; }
+  .photo-thumb img { width: 100%; height: 150px; object-fit: contain; border-radius: 10px; border: 1px solid #e4ddd2; background: #efe9df; }
+  .photo-remove { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; border-radius: 50%; background: #d43b3b; color: white; border: none; font-size: 13px; cursor: pointer; line-height: 1; }
+  .photo-add { height: 150px; border-radius: 10px; border: 1.5px dashed #cabfae; background: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #8a7f74; font-size: 12px; text-align: center; }
+  .btn-primary { width: 100%; padding: 13px; border-radius: 10px; border: none; background: #b5652e; color: white; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .btn-primary:disabled { opacity: 0.6; }
+  .btn-secondary { padding: 9px 14px; border-radius: 10px; border: 1px solid #e4ddd2; background: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer; color: #6b6459; }
+  .error-text { color: #d43b3b; font-size: 13px; margin-bottom: 10px; word-break: break-word; }
+  .searchbar { width: 100%; padding: 10px 14px; border-radius: 20px; border: 1px solid #e4ddd2; font-size: 13px; margin-bottom: 10px; background: #fff; }
+  .filters { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .filter-chip { padding: 6px 14px; border-radius: 20px; font-size: 12.5px; cursor: pointer; border: 1px solid #e4ddd2; background: #fff; color: #6b6459; display: inline-block; }
+  .filter-chip.active { background: #b5652e; color: #fff; border-color: #b5652e; }
+  .empty-state { text-align: center; padding: 50px 16px; color: #9a9084; font-size: 14px; }
+  .order-card { background: #fff; border: 1px solid #e4ddd2; border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+  .order-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .order-id { font-family: monospace; font-size: 13px; font-weight: 700; background: #f3e3d3; color: #a14f19; padding: 3px 10px; border-radius: 6px; }
+  .status-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+  .status-pending { background: #fbeadb; color: #a97a00; }
+  .status-shipped { background: #dcf8e8; color: #0a7a3d; }
+  .status-cancelled { background: #fde2e1; color: #b23a3a; }
+  .status-partial { background: #dbe9fb; color: #1a5fa8; }
+  .booking-time { font-size: 11px; color: #9a9084; margin-bottom: 2px; }
+  .activity-log { font-size: 10.5px; color: #b0a89c; margin-bottom: 8px; }
+  .order-photos { display: grid; grid-template-columns: repeat(2,1fr); gap: 6px; margin-bottom: 8px; }
+  .item-wrap { position: relative; }
+  .item-wrap.shipped-item img { opacity: 0.45; }
+  .item-shipped-tag { position: absolute; top: 4px; left: 4px; background: #2f8f5b; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
+  .order-photos img { width: 100%; height: 130px; object-fit: contain; border-radius: 8px; border: 1px solid #e4ddd2; cursor: zoom-in; background: #efe9df; }
+  .order-name { font-size: 14.5px; font-weight: 600; margin: 0 0 3px; }
+  .order-courier { font-size: 12px; color: #a14f19; background: #fbeadb; display: inline-block; padding: 2px 8px; border-radius: 6px; margin-bottom: 6px; }
+  .order-address { font-size: 12.5px; color: #6b6459; white-space: pre-line; line-height: 1.5; margin: 0 0 10px; }
+  .order-cancel-note { display: block; font-size: 12px; color: #b23a3a; background: #fdeceb; padding: 4px 9px; border-radius: 6px; margin-bottom: 6px; white-space: pre-line; }
+  .order-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-ship { flex: 1; padding: 9px; font-size: 13px; font-weight: 600; background: #2f8f5b; color: white; border: none; border-radius: 8px; cursor: pointer; }
+  .btn-unship { flex: 1; padding: 9px; font-size: 13px; background: #fff; border: 1px solid #e4ddd2; border-radius: 8px; cursor: pointer; color: #6b6459; }
+  .btn-cancel { padding: 9px 12px; background: #fff; border: 1px solid #f0c8c8; color: #b23a3a; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .btn-del { padding: 9px 12px; background: #fff; border: 1px solid #f0c8c8; color: #d43b3b; border-radius: 8px; cursor: pointer; }
+  mark { background: #ffe27a; padding: 0 1px; border-radius: 2px; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #211c16; color: white; padding: 10px 20px; border-radius: 20px; font-size: 13px; z-index: 50; max-width: 90%; text-align: center; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; }
+  .modal-box { background: white; border-radius: 14px; padding: 18px; max-width: 340px; width: 100%; text-align: center; }
+  .modal-box textarea { margin-top: 10px; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
+  .modal-actions button { flex: 1; padding: 10px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+  .zoom-img { max-width: 100%; max-height: 80vh; border-radius: 10px; }
+  .print-slip { padding: 14px 4px; border-bottom: 1px dashed #cabfae; }
+  .print-slip:last-child { border-bottom: none; }
+  .slip-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+  .slip-id { font-family: monospace; font-size: 17px; font-weight: 700; }
+  .slip-size { font-size: 13px; color: #6b6459; }
+  .slip-time { font-size: 11px; color: #9a9084; margin-bottom: 6px; }
+  .slip-name { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+  .slip-courier { font-size: 12px; color: #a14f19; margin: 0 0 4px; }
+  .slip-address { font-size: 13px; white-space: pre-line; line-height: 1.5; margin: 0; }
+  .print-header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
+  .btn-print { padding: 9px 16px; background: #211c16; color: white; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; }
+  .btn-print:disabled { opacity: 0.5; }
+  .loading-state { text-align: center; padding: 50px 16px; color: #9a9084; font-size: 14px; }
+  .banner { font-size: 12.5px; padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; }
+  .banner.warn { background: #fff4d6; border: 1px solid #f0dfa8; color: #7a5b00; }
+  .banner.err { background: #fde2e1; border: 1px solid #f0c8c8; color: #b23a3a; }
+  .album-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; margin-bottom: 90px; }
+  .album-cell { position: relative; cursor: pointer; }
+  .album-cell img { width: 100%; height: 150px; object-fit: contain; border-radius: 10px; border: 2px solid #e4ddd2; background: #efe9df; display: block; }
+  .album-cell.selected img { border-color: #b5652e; box-shadow: 0 0 0 2px #fbeadb; }
+  .album-check { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.9); border: 2px solid #cabfae; display: flex; align-items: center; justify-content: center; font-size: 13px; color: transparent; }
+  .album-cell.selected .album-check { background: #b5652e; border-color: #b5652e; color: #fff; }
+  .album-caption { font-size: 11px; color: #6b6459; padding: 4px 2px 0; line-height: 1.4; }
+  .album-caption b { color: #211c16; }
+  .ship-bar { position: fixed; left: 0; right: 0; bottom: 0; background: #211c16; color: #fff; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; z-index: 40; max-width: 480px; margin: 0 auto; }
+  .ship-bar span { font-size: 13px; }
+  .ship-bar-actions { display: flex; gap: 8px; }
+  .ship-bar button { padding: 9px 14px; border-radius: 8px; font-size: 12.5px; cursor: pointer; border: none; }
+  .btn-clear-sel { background: #3a332b; color: #d9d2c8; }
+  .btn-ship-print { background: #b5652e; color: #fff; font-weight: 600; }
+  #shipPrintArea { display: none; }
+  .login-wrap { max-width: 340px; margin: 60px auto; padding: 0 16px; }
+  .login-box { background: #fff; border: 1px solid #e4ddd2; border-radius: 16px; padding: 24px; }
+  .login-box h1 { font-size: 18px; margin: 0 0 4px; }
+  .login-box p { font-size: 13px; color: #6b6459; margin: 0 0 20px; }
+  .user-bar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #9a9084; margin-bottom: 10px; }
+  .user-bar button { background: none; border: none; color: #b5652e; font-size: 12px; cursor: pointer; text-decoration: underline; padding: 0; }
+  @media print {
+    .no-print { display: none !important; }
+    body * { visibility: hidden; }
+    #print-area, #print-area * { visibility: visible; }
+    #print-area { position: absolute; left: 0; top: 0; width: 100%; }
+    #shipPrintArea { display: block !important; }
+    #shipPrintArea, #shipPrintArea * { visibility: visible; }
+    #shipPrintArea { position: absolute; left: 0; top: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toastHost"></div>
+<div id="modalHost"></div>
+<div id="shipPrintArea"></div>
+<input type="file" id="importFileInput" accept="application/json" style="display:none;">
+<datalist id="resellerList"></datalist>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+(function(){
+
+  // ===== CONFIGURE THESE TWO VALUES =====
+  var SUPABASE_URL = 'https://wcrkwscqrazuipfhjggy.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indjcmt3c2NxcmF6dWlwZmhqZ2d5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjYyNTMsImV4cCI6MjEwMjU0MjI1M30.J2P5ET6OLgzHAM2bpQfPOdXhvQAbVk4nJPu75ojlj9I';
+  // =======================================
+
+  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  var state = {
+    session: null,
+    orders: [],
+    resellers: [],
+    loading: true,
+    tab: 'book',
+    filter: 'pending',
+    query: '',
+    bookPhotos: [],
+    processing: false,
+    saving: false,
+    shipSelection: {},
+    loginError: ''
+  };
+
+  function esc(s){
+    var div = document.createElement('div');
+    div.textContent = s == null ? '' : s;
+    return div.innerHTML;
+  }
+
+  function escapeRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  function highlightText(text, query){
+    var str = text == null ? '' : String(text);
+    if(!query || !query.trim()) return esc(str);
+    var q = query.trim();
+    var re = new RegExp('(' + escapeRegex(q) + ')', 'ig');
+    var parts = str.split(re);
+    return parts.map(function(part, i){
+      if(part === undefined || part === '') return '';
+      return (i % 2 === 1) ? '<mark>' + esc(part) + '</mark>' : esc(part);
+    }).join('');
+  }
+
+  function formatTime(ts){
+    if(!ts) return '';
+    var d = new Date(ts);
+    var opts = { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true };
+    return d.toLocaleString('en-IN', opts);
+  }
+
+  function showToast(msg){
+    var host = document.getElementById('toastHost');
+    host.innerHTML = '<div class="toast">' + esc(msg) + '</div>';
+    setTimeout(function(){ host.innerHTML = ''; }, 2600);
+  }
+
+  function currentUserLabel(){
+    if(!state.session || !state.session.user) return 'Unknown';
+    return state.session.user.email;
+  }
+
+  function resizeImageToBlob(file, maxW){
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onerror = function(){ reject(new Error('Could not read the photo file')); };
+      reader.onload = function(e){
+        var img = new Image();
+        img.onerror = function(){ reject(new Error('Could not decode the photo')); };
+        img.onload = function(){
+          var w = img.width, hh = img.height;
+          if(w > maxW){ hh = Math.round(hh * (maxW/w)); w = maxW; }
+          var canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = hh;
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, hh);
+          canvas.toBlob(function(blob){
+            if(!blob){ reject(new Error('Could not compress photo')); return; }
+            resolve(blob);
+          }, 'image/jpeg', 0.6);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ===== AUTH =====
+
+  async function initAuth(){
+    var { data } = await sb.auth.getSession();
+    state.session = data.session;
+    sb.auth.onAuthStateChange(function(event, session){
+      state.session = session;
+      if(session){ loadOrders(); } else { render(); }
+    });
+    if(state.session){
+      await loadOrders();
+    }else{
+      state.loading = false;
+      render();
+    }
+  }
+
+  async function login(email, password){
+    state.loginError = '';
+    var { data, error } = await sb.auth.signInWithPassword({ email: email, password: password });
+    if(error){
+      state.loginError = error.message;
+      render();
+      return;
+    }
+    state.session = data.session;
+    await loadOrders();
+  }
+
+  async function logout(){
+    await sb.auth.signOut();
+    state.session = null;
+    state.orders = [];
+    render();
+  }
+
+  // ===== DATA LOADING =====
+
+  async function loadOrders(){
+    state.loading = true;
+    render();
+    try{
+      var { data: orders, error: ordersErr } = await sb
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if(ordersErr) throw ordersErr;
+
+      var { data: items, error: itemsErr } = await sb
+        .from('order_items')
+        .select('*')
+        .order('item_index', { ascending: true });
+      if(itemsErr) throw itemsErr;
+
+      var byOrder = {};
+      (items||[]).forEach(function(it){
+        if(!byOrder[it.order_id]) byOrder[it.order_id] = [];
+        byOrder[it.order_id].push(it);
+      });
+
+      state.orders = (orders||[]).map(function(o){
+        o.items = byOrder[o.id] || [];
+        return o;
+      });
+
+      var names = {};
+      state.orders.forEach(function(o){ if(o.reseller_name) names[o.reseller_name.toLowerCase()] = o.reseller_name; });
+      state.resellers = Object.values(names).sort();
+
+    }catch(e){
+      showToast('Could not load orders: ' + (e && e.message ? e.message : 'unknown error'));
+    }
+    state.loading = false;
+    render();
+  }
+
+  function orderProgress(o){
+    var items = o.items || [];
+    var total = items.length;
+    var shippedCount = items.filter(function(i){ return i.status === 'shipped'; }).length;
+    return { total: total, shippedCount: shippedCount };
+  }
+
+  function orderDisplayStatus(o){
+    if(o.status === 'cancelled') return 'cancelled';
+    var p = orderProgress(o);
+    if(p.total > 0 && p.shippedCount === p.total) return 'shipped';
+    if(p.shippedCount > 0) return 'partial';
+    return 'pending';
+  }
+
+  // ===== BOOKING =====
+
+  async function saveOrder(name, size, courier, address, photoBlobs){
+    var { data: idData, error: idErr } = await sb.rpc('get_next_order_id');
+    if(idErr) throw new Error('Could not get order number: ' + idErr.message);
+    var orderId = idData;
+
+    var uploadedUrls = [];
+    for(var i=0;i<photoBlobs.length;i++){
+      var path = orderId + '/' + Date.now() + '_' + i + '.jpg';
+      var { error: upErr } = await sb.storage.from('order-photos').upload(path, photoBlobs[i], { contentType: 'image/jpeg' });
+      if(upErr) throw new Error('Photo ' + (i+1) + ' upload failed: ' + upErr.message);
+      var { data: pub } = sb.storage.from('order-photos').getPublicUrl(path);
+      uploadedUrls.push(pub.publicUrl);
+    }
+
+    var { error: orderErr } = await sb.from('orders').insert({
+      id: orderId,
+      reseller_name: name,
+      size: size,
+      courier: courier,
+      address: address,
+      status: 'pending',
+      created_by: state.session.user.id
+    });
+    if(orderErr) throw new Error('Order save failed: ' + orderErr.message);
+
+    var itemRows = uploadedUrls.map(function(url, idx){
+      return { order_id: orderId, item_index: idx, photo_url: url, status: 'pending' };
+    });
+    var { error: itemsErr } = await sb.from('order_items').insert(itemRows);
+    if(itemsErr) throw new Error('Photo records failed: ' + itemsErr.message);
+
+    return orderId;
+  }
+
+  async function bulkUpdateOrderItems(orderId, status){
+    var ord = state.orders.find(function(o){ return o.id === orderId; });
+    if(!ord) return;
+    var patch = { status: status };
+    if(status === 'shipped'){ patch.shipped_at = new Date().toISOString(); patch.shipped_by = state.session.user.id; }
+    else { patch.shipped_at = null; patch.shipped_by = null; }
+
+    var { error } = await sb.from('order_items').update(patch).eq('order_id', orderId);
+    if(error){ showToast('Update failed: ' + error.message); return; }
+
+    if(ord.status === 'cancelled'){
+      await sb.from('orders').update({ status: 'pending' }).eq('id', orderId);
+    }
+    showToast(status === 'shipped' ? 'All pieces marked shipped' : 'All pieces marked pending');
+    await loadOrders();
+  }
+
+  async function deleteOrder(id){
+    var { error } = await sb.from('orders').delete().eq('id', id);
+    if(error){ showToast('Delete failed: ' + error.message); return; }
+    showToast('Order deleted');
+    closeModal();
+    await loadOrders();
+  }
+
+  async function cancelOrder(id, reason){
+    var { error } = await sb.from('orders').update({
+      status: 'cancelled',
+      cancel_reason: reason,
+      cancelled_at: new Date().toISOString(),
+      cancelled_by: state.session.user.id
+    }).eq('id', id);
+    if(error){ showToast('Cancel failed: ' + error.message); return; }
+    showToast('Order cancelled');
+    closeModal();
+    await loadOrders();
+  }
+
+  async function printAndMarkShipped(){
+    var selections = Object.values(state.shipSelection);
+    if(selections.length === 0) return;
+
+    var groups = {};
+    selections.forEach(function(sel){
+      if(!groups[sel.orderId]) groups[sel.orderId] = [];
+      groups[sel.orderId].push(sel.itemDbId);
+    });
+
+    var slipsHtml = '';
+    for(var orderId in groups){
+      var ord = state.orders.find(function(o){ return o.id === orderId; });
+      if(!ord) continue;
+      var dbIds = groups[orderId];
+      var { error } = await sb.from('order_items').update({
+        status: 'shipped', shipped_at: new Date().toISOString(), shipped_by: state.session.user.id
+      }).in('id', dbIds);
+      if(error){ showToast('Could not mark shipped: ' + error.message); return; }
+
+      var prog = orderProgress(ord);
+      var shippingNow = dbIds.length;
+      slipsHtml += '<div class="print-slip">';
+      slipsHtml += '<div class="slip-top"><span class="slip-id">Order #' + esc(ord.id) + '</span>';
+      if(ord.size) slipsHtml += '<span class="slip-size">Size: ' + esc(ord.size) + '</span>';
+      slipsHtml += '</div>';
+      slipsHtml += '<div class="slip-time">Booked: ' + formatTime(ord.created_at) + '</div>';
+      if(prog.total > 1){
+        slipsHtml += '<div class="slip-time">Shipping ' + shippingNow + ' of ' + prog.total + ' piece(s) in this order</div>';
+      }
+      slipsHtml += '<p class="slip-name">' + esc(ord.reseller_name) + '</p>';
+      if(ord.courier) slipsHtml += '<p class="slip-courier">Courier: ' + esc(ord.courier) + '</p>';
+      slipsHtml += '<p class="slip-address">' + esc(ord.address) + '</p>';
+      slipsHtml += '</div>';
+    }
+
+    document.getElementById('shipPrintArea').innerHTML = slipsHtml;
+    window.print();
+    state.shipSelection = {};
+    showToast('Marked shipped and sent to print');
+    await loadOrders();
+  }
+
+  // ===== MODALS =====
+
+  function closeModal(){ document.getElementById('modalHost').innerHTML = ''; }
+
+  function openZoom(photoSrc){
+    document.getElementById('modalHost').innerHTML =
+      '<div class="modal-overlay" id="zoomOverlay"><img class="zoom-img" src="' + photoSrc + '"></div>';
+    document.getElementById('zoomOverlay').addEventListener('click', closeModal);
+  }
+
+  function openDeleteConfirm(id){
+    document.getElementById('modalHost').innerHTML =
+      '<div class="modal-overlay"><div class="modal-box">' +
+        '<p style="font-size:14px;margin:0;">Delete this order permanently?</p>' +
+        '<div class="modal-actions">' +
+          '<button id="cancelDelBtn" style="background:#fff;border:1px solid #e4ddd2;">Cancel</button>' +
+          '<button id="confirmDelBtn" style="background:#d43b3b;color:#fff;border:none;">Delete</button>' +
+        '</div></div></div>';
+    document.getElementById('cancelDelBtn').addEventListener('click', closeModal);
+    document.getElementById('confirmDelBtn').addEventListener('click', function(){ deleteOrder(id); });
+  }
+
+  function openCancelConfirm(id){
+    document.getElementById('modalHost').innerHTML =
+      '<div class="modal-overlay"><div class="modal-box">' +
+        '<p style="font-size:14px;margin:0;">Cancel order #' + esc(id) + '?</p>' +
+        '<textarea id="cancelReasonInput" rows="3" placeholder="Reason for cancellation"></textarea>' +
+        '<div class="error-text" id="cancelReasonError" style="display:none;margin-top:6px;margin-bottom:0;">Please enter a reason</div>' +
+        '<div class="modal-actions">' +
+          '<button id="backCancelBtn" style="background:#fff;border:1px solid #e4ddd2;">Back</button>' +
+          '<button id="confirmCancelBtn" style="background:#b23a3a;color:#fff;border:none;">Confirm cancel</button>' +
+        '</div></div></div>';
+    document.getElementById('backCancelBtn').addEventListener('click', closeModal);
+    document.getElementById('confirmCancelBtn').addEventListener('click', function(){
+      var reason = (document.getElementById('cancelReasonInput').value || '').trim();
+      if(!reason){ document.getElementById('cancelReasonError').style.display = 'block'; return; }
+      cancelOrder(id, reason);
+    });
+  }
+
+  // ===== LOGIN SCREEN =====
+
+  function renderLogin(){
+    var html = '<div class="login-wrap"><div class="login-box">';
+    html += '<h1>Order Management</h1><p>Sign in with your staff account</p>';
+    html += '<div class="field"><label>Email</label><input type="email" id="loginEmail" placeholder="you@example.com"></div>';
+    html += '<div class="field"><label>Password</label><input type="password" id="loginPassword"></div>';
+    if(state.loginError){ html += '<div class="error-text">' + esc(state.loginError) + '</div>'; }
+    html += '<button class="btn-primary" id="loginBtn">Sign in</button>';
+    html += '</div></div>';
+    return html;
+  }
+
+  function wireLogin(){
+    document.getElementById('loginBtn').addEventListener('click', function(){
+      var email = document.getElementById('loginEmail').value.trim();
+      var pw = document.getElementById('loginPassword').value;
+      if(!email || !pw){ state.loginError = 'Enter email and password'; render(); return; }
+      login(email, pw);
+    });
+  }
+
+  // ===== BOOK TAB =====
+
+  function renderBookTab(){
+    var html = '<div>';
+    html += '<div class="field"><label>Product photos</label><div class="photo-grid" id="photoGrid">';
+    state.bookPhotos.forEach(function(p, i){
+      html += '<div class="photo-thumb"><img src="' + p.previewUrl + '"><button class="photo-remove" data-idx="' + i + '">\u00d7</button></div>';
+    });
+    if(state.bookPhotos.length < 6){
+      html += '<div class="photo-add" id="addPhotoBtn">' + (state.processing ? 'Processing...' : '+ Add photo') + '</div>';
+    }
+    html += '</div><input type="file" id="fileInput" accept="image/*" multiple style="display:none;"></div>';
+
+    html += '<div class="field"><label>Reseller name</label><input type="text" id="nameInput" list="resellerList" placeholder="e.g. Sakhi Boutique" value="' + esc(state.nameVal||'') + '">';
+    html += '<div class="field-hint">Start typing to see saved resellers</div></div>';
+    html += '<div class="field"><label>Size (optional)</label><input type="text" id="sizeInput" placeholder="e.g. M, L, 38" value="' + esc(state.sizeVal||'') + '"></div>';
+    html += '<div class="field"><label>Courier (optional)</label><input type="text" id="courierInput" placeholder="e.g. DTDC, Delhivery" value="' + esc(state.courierVal||'') + '"></div>';
+    html += '<div class="field"><label>Full delivery address</label><textarea id="addressInput" rows="5" placeholder="Name, house/flat no, street, city, state, pincode, contact">' + esc(state.addressVal||'') + '</textarea></div>';
+    if(state.bookError){ html += '<div class="error-text">' + esc(state.bookError) + '</div>'; }
+    html += '<button class="btn-primary" id="saveOrderBtn" ' + (state.saving||state.processing ? 'disabled' : '') + '>' + (state.saving ? 'Saving...' : 'Save order') + '</button>';
+    html += '</div>';
+    return html;
+  }
+
+  function wireBookTab(){
+    var dl = document.getElementById('resellerList');
+    dl.innerHTML = state.resellers.map(function(r){ return '<option value="' + esc(r) + '">'; }).join('');
+
+    document.getElementById('addPhotoBtn') && document.getElementById('addPhotoBtn').addEventListener('click', function(){
+      document.getElementById('fileInput').click();
+    });
+    document.getElementById('fileInput') && document.getElementById('fileInput').addEventListener('change', async function(e){
+      var files = Array.prototype.slice.call(e.target.files || []);
+      if(files.length === 0) return;
+      state.bookError = '';
+      state.processing = true;
+      render();
+      try{
+        var slice = files.slice(0, 6 - state.bookPhotos.length);
+        var blobs = await Promise.all(slice.map(function(f){ return resizeImageToBlob(f, 900); }));
+        var withPreview = blobs.map(function(b){ return { blob: b, previewUrl: URL.createObjectURL(b) }; });
+        state.bookPhotos = state.bookPhotos.concat(withPreview).slice(0,6);
+      }catch(err){
+        state.bookError = 'Could not process a photo: ' + (err && err.message ? err.message : 'unknown error');
+      }
+      state.processing = false;
+      render();
+    });
+    document.querySelectorAll('.photo-remove').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var idx = parseInt(btn.getAttribute('data-idx'), 10);
+        state.bookPhotos.splice(idx, 1);
+        render();
+      });
+    });
+    var nameInput = document.getElementById('nameInput');
+    var sizeInput = document.getElementById('sizeInput');
+    var courierInput = document.getElementById('courierInput');
+    var addressInput = document.getElementById('addressInput');
+    nameInput.addEventListener('input', function(){ state.nameVal = nameInput.value; });
+    sizeInput.addEventListener('input', function(){ state.sizeVal = sizeInput.value; });
+    courierInput.addEventListener('input', function(){ state.courierVal = courierInput.value; });
+    addressInput.addEventListener('input', function(){ state.addressVal = addressInput.value; });
+
+    document.getElementById('saveOrderBtn').addEventListener('click', async function(){
+      var name = (state.nameVal || '').trim();
+      var address = (state.addressVal || '').trim();
+      var size = (state.sizeVal || '').trim();
+      var courier = (state.courierVal || '').trim();
+      if(state.bookPhotos.length === 0){ state.bookError = 'Add at least one photo'; render(); return; }
+      if(!name){ state.bookError = 'Enter reseller name'; render(); return; }
+      if(!address){ state.bookError = 'Enter delivery address'; render(); return; }
+      state.bookError = '';
+      state.saving = true;
+      render();
+      try{
+        var blobs = state.bookPhotos.map(function(p){ return p.blob; });
+        var orderId = await saveOrder(name, size, courier, address, blobs);
+        showToast('Order #' + orderId + ' saved');
+        state.bookPhotos = [];
+        state.nameVal = ''; state.sizeVal = ''; state.courierVal = ''; state.addressVal = '';
+        state.saving = false;
+        state.tab = 'orders';
+        await loadOrders();
+      }catch(err){
+        state.bookError = 'Could not save: ' + (err && err.message ? err.message : String(err));
+        state.saving = false;
+        render();
+      }
+    });
+  }
+
+  // ===== ORDERS TAB =====
+
+  function getFilteredOrders(){
+    return state.orders.filter(function(o){
+      var ds = orderDisplayStatus(o);
+      var matchesFilter = state.filter === 'all' ? true : (state.filter === 'pending' ? (ds === 'pending' || ds === 'partial') : ds === state.filter);
+      var hay = (o.reseller_name+' '+(o.size||'')+' '+o.address+' '+o.id+' '+(o.courier||'')+' '+(o.cancel_reason||'')).toLowerCase();
+      var matchesQuery = state.query.trim() === '' || hay.indexOf(state.query.trim().toLowerCase()) !== -1;
+      return matchesFilter && matchesQuery;
+    });
+  }
+
+  function renderOrderCardsHtml(filtered){
+    var html = '';
+    if(filtered.length === 0){
+      html += '<div class="empty-state">' + (state.orders.length===0 ? 'No orders yet. Book your first order.' : 'No orders match.') + '</div>';
+    }
+    var q = state.query;
+    var statusLabel = { pending: 'Pending', shipped: 'Shipped', cancelled: 'Cancelled', partial: 'Partial' };
+    var statusClass = { pending: 'status-pending', shipped: 'status-shipped', cancelled: 'status-cancelled', partial: 'status-partial' };
+    filtered.forEach(function(o){
+      var ds = orderDisplayStatus(o);
+      var prog = orderProgress(o);
+      html += '<div class="order-card">';
+      html += '<div class="order-top"><span class="order-id">#' + highlightText(o.id, q) + '</span>';
+      var pillText = statusLabel[ds];
+      if(ds === 'partial') pillText = prog.shippedCount + ' of ' + prog.total + ' shipped';
+      html += '<span class="status-pill ' + statusClass[ds] + '">' + pillText + '</span></div>';
+      html += '<div class="booking-time">Booked: ' + formatTime(o.created_at) + '</div>';
+      html += '<div class="activity-log">Booked by ' + esc(o.created_by_email || 'staff');
+      if(o.cancelled_at) html += ' \u00b7 Cancelled by ' + esc(o.cancelled_by_email || 'staff') + ' ' + formatTime(o.cancelled_at);
+      html += '</div>';
+      html += '<div class="order-photos">';
+      (o.items||[]).forEach(function(item){
+        var shippedClass = item.status === 'shipped' ? ' shipped-item' : '';
+        html += '<div class="item-wrap' + shippedClass + '">';
+        if(item.status === 'shipped'){ html += '<span class="item-shipped-tag">Shipped</span>'; }
+        html += '<img data-src="' + item.photo_url + '" class="orderPhoto" src="' + item.photo_url + '">';
+        html += '</div>';
+      });
+      html += '</div>';
+      html += '<p class="order-name">' + highlightText(o.reseller_name, q) + (o.size ? ' \u00b7 size ' + highlightText(o.size, q) : '') + '</p>';
+      if(o.courier){ html += '<span class="order-courier">Courier: ' + highlightText(o.courier, q) + '</span><br>'; }
+      if(ds === 'cancelled' && o.cancel_reason){ html += '<span class="order-cancel-note">Cancelled: ' + esc(o.cancel_reason) + '</span>'; }
+      html += '<p class="order-address">' + highlightText(o.address, q) + '</p>';
+      html += '<div class="order-actions">';
+      if(ds === 'cancelled'){
+        html += '<button class="btn-unship" data-unship="' + o.id + '">Reactivate</button>';
+      }else{
+        if(ds !== 'shipped'){ html += '<button class="btn-ship" data-ship="' + o.id + '">Mark all shipped</button>'; }
+        if(ds !== 'pending'){ html += '<button class="btn-unship" data-unship="' + o.id + '">Mark all pending</button>'; }
+        html += '<button class="btn-cancel" data-cancel="' + o.id + '">Cancel</button>';
+      }
+      html += '<button class="btn-del" data-del="' + o.id + '">\ud83d\uddd1</button>';
+      html += '</div></div>';
+    });
+    return html;
+  }
+
+  function wireOrderCards(){
+    document.querySelectorAll('.orderPhoto').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+    document.querySelectorAll('[data-ship]').forEach(function(btn){
+      btn.addEventListener('click', function(){ bulkUpdateOrderItems(btn.getAttribute('data-ship'), 'shipped'); });
+    });
+    document.querySelectorAll('[data-unship]').forEach(function(btn){
+      btn.addEventListener('click', function(){ bulkUpdateOrderItems(btn.getAttribute('data-unship'), 'pending'); });
+    });
+    document.querySelectorAll('[data-del]').forEach(function(btn){
+      btn.addEventListener('click', function(){ openDeleteConfirm(btn.getAttribute('data-del')); });
+    });
+    document.querySelectorAll('[data-cancel]').forEach(function(btn){
+      btn.addEventListener('click', function(){ openCancelConfirm(btn.getAttribute('data-cancel')); });
+    });
+  }
+
+  function updateOrdersResults(){
+    var el = document.getElementById('ordersResults');
+    if(!el) return;
+    el.innerHTML = renderOrderCardsHtml(getFilteredOrders());
+    wireOrderCards();
+  }
+
+  function renderOrdersTab(){
+    if(state.loading){ return '<div class="loading-state">Loading orders...</div>'; }
+    var html = '<input class="searchbar" type="text" id="searchInput" placeholder="Search reseller, size, address, order id, courier" value="' + esc(state.query) + '">';
+    html += '<div class="filters">';
+    ['pending','shipped','cancelled','all'].forEach(function(f){
+      html += '<div class="filter-chip' + (state.filter===f?' active':'') + '" data-filter="' + f + '">' + f.charAt(0).toUpperCase()+f.slice(1) + '</div>';
+    });
+    html += '</div>';
+    html += '<div id="ordersResults">' + renderOrderCardsHtml(getFilteredOrders()) + '</div>';
+    return html;
+  }
+
+  function wireOrdersTab(){
+    var search = document.getElementById('searchInput');
+    search.addEventListener('input', function(){ state.query = search.value; updateOrdersResults(); });
+    document.querySelectorAll('.filter-chip').forEach(function(chip){
+      chip.addEventListener('click', function(){
+        state.filter = chip.getAttribute('data-filter');
+        document.querySelectorAll('.filter-chip').forEach(function(c){ c.classList.remove('active'); });
+        chip.classList.add('active');
+        updateOrdersResults();
+      });
+    });
+    wireOrderCards();
+  }
+
+  // ===== SHIP ALBUM TAB =====
+
+  function getPendingItems(){
+    var flat = [];
+    state.orders.forEach(function(o){
+      if(o.status === 'cancelled') return;
+      (o.items||[]).forEach(function(item){
+        if(item.status === 'pending'){ flat.push({ order: o, item: item }); }
+      });
+    });
+    return flat;
+  }
+
+  function renderShipTab(){
+    var pendingItems = getPendingItems();
+    var selCount = Object.keys(state.shipSelection).length;
+    var html = '<p style="font-size:13px;color:#6b6459;margin:0 0 12px;">Tap the pieces you\u2019re ready to ship.</p>';
+    if(pendingItems.length === 0){
+      html += '<div class="empty-state">No pending pieces.</div>';
+      return html;
+    }
+    html += '<div class="album-grid" id="albumGrid">';
+    pendingItems.forEach(function(entry){
+      var key = String(entry.item.id);
+      var isSel = !!state.shipSelection[key];
+      html += '<div class="album-cell' + (isSel?' selected':'') + '" data-key="' + key + '" data-order="' + entry.order.id + '" data-dbid="' + entry.item.id + '">';
+      html += '<img src="' + entry.item.photo_url + '"><div class="album-check">\u2713</div></div>';
+      html += '<div class="album-caption"><b>#' + esc(entry.order.id) + '</b> \u00b7 ' + esc(entry.order.reseller_name) + (entry.order.size ? ' \u00b7 ' + esc(entry.order.size) : '') + '</div>';
+    });
+    html += '</div>';
+    if(selCount > 0){
+      html += '<div class="ship-bar no-print"><span>' + selCount + ' piece' + (selCount!==1?'s':'') + ' selected</span>';
+      html += '<div class="ship-bar-actions"><button class="btn-clear-sel" id="clearSelBtn">Clear</button>';
+      html += '<button class="btn-ship-print" id="shipPrintBtn">Print &amp; Mark Shipped</button></div></div>';
+    }
+    return html;
+  }
+
+  function wireShipTab(){
+    document.querySelectorAll('.album-cell').forEach(function(cell){
+      cell.addEventListener('click', function(){
+        var key = cell.getAttribute('data-key');
+        if(state.shipSelection[key]){ delete state.shipSelection[key]; }
+        else{ state.shipSelection[key] = { orderId: cell.getAttribute('data-order'), itemDbId: parseInt(cell.getAttribute('data-dbid'),10) }; }
+        document.getElementById('tabContent').innerHTML = renderShipTab();
+        wireShipTab();
+      });
+    });
+    document.getElementById('clearSelBtn') && document.getElementById('clearSelBtn').addEventListener('click', function(){
+      state.shipSelection = {};
+      document.getElementById('tabContent').innerHTML = renderShipTab();
+      wireShipTab();
+    });
+    document.getElementById('shipPrintBtn') && document.getElementById('shipPrintBtn').addEventListener('click', printAndMarkShipped);
+  }
+
+  // ===== PRINT TAB =====
+
+  function renderPrintTab(){
+    var pending = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; });
+    var html = '<div class="print-header-bar no-print">';
+    html += '<p style="font-size:13px;color:#6b6459;margin:0;">' + pending.length + ' pending order' + (pending.length!==1?'s':'') + ' ready to print</p>';
+    html += '<button class="btn-print" id="printBtn" ' + (pending.length===0?'disabled':'') + '>Print all slips</button></div>';
+    if(pending.length === 0){ html += '<div class="empty-state">No pending orders to print.</div>'; }
+    html += '<div id="print-area">';
+    pending.forEach(function(o){
+      html += '<div class="print-slip"><div class="slip-top"><span class="slip-id">Order #' + esc(o.id) + '</span>';
+      if(o.size) html += '<span class="slip-size">Size: ' + esc(o.size) + '</span>';
+      html += '</div><div class="slip-time">Booked: ' + formatTime(o.created_at) + '</div>';
+      html += '<p class="slip-name">' + esc(o.reseller_name) + '</p>';
+      if(o.courier) html += '<p class="slip-courier">Courier: ' + esc(o.courier) + '</p>';
+      html += '<p class="slip-address">' + esc(o.address) + '</p></div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function wirePrintTab(){
+    var btn = document.getElementById('printBtn');
+    btn && btn.addEventListener('click', function(){ window.print(); });
+  }
+
+  // ===== APP SHELL / RENDER =====
+
+  function render(){
+    var appEl = document.getElementById('app');
+    if(!state.session){
+      appEl.innerHTML = renderLogin();
+      wireLogin();
+      return;
+    }
+
+    var pendingCount = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; }).length;
+
+    var shellHtml = '<div class="user-bar"><span>Signed in: ' + esc(currentUserLabel()) + '</span><button id="logoutBtn">Sign out</button></div>';
+    shellHtml += '<div class="tabs no-print">';
+    shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook">Book</div>';
+    shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders">Orders' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
+    shellHtml += '<div class="tab-btn' + (state.tab==='ship'?' active':'') + '" id="tabBtnShip">Ship Album</div>';
+    shellHtml += '<div class="tab-btn' + (state.tab==='print'?' active':'') + '" id="tabBtnPrint">Print all</div>';
+    shellHtml += '</div><div id="tabContent"></div>';
+
+    appEl.innerHTML = shellHtml;
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+    document.getElementById('tabBtnBook').addEventListener('click', function(){ state.tab='book'; render(); });
+    document.getElementById('tabBtnOrders').addEventListener('click', function(){ state.tab='orders'; render(); });
+    document.getElementById('tabBtnShip').addEventListener('click', function(){ state.tab='ship'; render(); });
+    document.getElementById('tabBtnPrint').addEventListener('click', function(){ state.tab='print'; render(); });
+
+    var content = document.getElementById('tabContent');
+    if(state.tab === 'book'){ content.innerHTML = renderBookTab(); wireBookTab(); }
+    else if(state.tab === 'orders'){ content.innerHTML = renderOrdersTab(); wireOrdersTab(); }
+    else if(state.tab === 'ship'){ content.innerHTML = renderShipTab(); wireShipTab(); }
+    else if(state.tab === 'print'){ content.innerHTML = renderPrintTab(); wirePrintTab(); }
+  }
+
+  initAuth();
+})();
+</script>
+</body>
+</html>
