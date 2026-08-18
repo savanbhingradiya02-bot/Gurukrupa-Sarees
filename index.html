@@ -24,29 +24,29 @@
     .order-photos { column-count: 10; }
     .album-grid { grid-template-columns: repeat(12,1fr); }
   }
-  .tabs { display: flex; gap: 7px; margin-bottom: 18px; position: sticky; top: 0; background: #131314; padding: 10px 0; z-index: 5; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; position: sticky; top: 0; background: #131314; padding: 10px 0; z-index: 5; }
   .tab-btn {
-    flex: 1; padding: 11px 5px; border-radius: 11px; border: 1.5px solid #3c4043;
-    background: #202124; color: #9aa0a6; font-size: 10.5px; font-weight: 800; cursor: pointer;
+    flex: 1; padding: 12px 4px; border-radius: 11px; border: 1.5px solid #3c4043;
+    background: #202124; color: #9aa0a6; font-size: 11.5px; font-weight: 800; cursor: pointer;
     position: relative; text-align: center; transition: all 0.15s; letter-spacing: 0.1px;
   }
-  .tab-btn .tab-icon { display: block; font-size: 16px; margin-bottom: 4px; }
+  .tab-btn .tab-icon { display: block; font-size: 18px; margin-bottom: 5px; }
   .tab-btn.active { border-color: #d97a3f; background: linear-gradient(180deg, rgba(217,122,63,0.28), rgba(217,122,63,0.12)); color: #f2a76a; box-shadow: 0 3px 10px rgba(217,122,63,0.3); }
   .tab-btn:hover { border-color: #5f6368; transform: translateY(-1px); }
   .badge {
     position: absolute; top: -7px; right: 5px; background: #e05c5c; color: white;
-    font-size: 10px; font-weight: 800; border-radius: 10px; padding: 2px 7px; min-width: 18px; text-align: center;
+    font-size: 11px; font-weight: 800; border-radius: 10px; padding: 2px 7px; min-width: 19px; text-align: center;
     box-shadow: 0 2px 6px rgba(224,92,92,0.6), 0 0 0 2px #131314;
   }
-  label { font-size: 13px; color: #9aa0a6; display: block; margin-bottom: 5px; font-weight: 500; }
+  label { font-size: 14.5px; color: #9aa0a6; display: block; margin-bottom: 6px; font-weight: 500; }
   input[type=text], input[type=email], input[type=password], textarea {
-    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #3c4043;
-    font-size: 14px; font-family: inherit; background: #28292c; color: #e8eaed;
+    width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid #3c4043;
+    font-size: 16px; font-family: inherit; background: #28292c; color: #e8eaed;
   }
   input::placeholder, textarea::placeholder { color: #80868b; }
   textarea { resize: vertical; }
   .field { margin-bottom: 14px; }
-  .field-hint { font-size: 11.5px; color: #80868b; margin-top: 4px; }
+  .field-hint { font-size: 12.5px; color: #80868b; margin-top: 5px; }
 
   .photo-grid { column-count: 6; column-gap: 6px; margin-bottom: 12px; }
   .photo-thumb { position: relative; border-radius: 8px; overflow: hidden; break-inside: avoid; margin-bottom: 6px; border: 1px solid #3c4043; }
@@ -62,16 +62,16 @@
   .photo-shop-row { display: flex; gap: 10px; align-items: center; background: #202124; border: 1px solid #3c4043; border-radius: 10px; padding: 8px; }
   .photo-shop-row img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
   .photo-shop-row-fields { flex: 1; min-width: 0; }
-  .photo-shop-row-fields label { margin-bottom: 3px; font-size: 12px; }
-  .photo-shop-row-fields input { padding: 8px 10px; font-size: 13px; }
+  .photo-shop-row-fields label { margin-bottom: 4px; font-size: 13.5px; }
+  .photo-shop-row-fields input { padding: 10px 12px; font-size: 16px; }
 
-  .btn-primary { width: 100%; padding: 13px; border-radius: 10px; border: none; background: #d97a3f; color: #1a1207; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .btn-primary { width: 100%; padding: 15px; border-radius: 10px; border: none; background: #d97a3f; color: #1a1207; font-size: 16px; font-weight: 700; cursor: pointer; }
   .btn-primary:disabled { opacity: 0.5; }
-  .btn-secondary { padding: 9px 14px; border-radius: 10px; border: 1px solid #3c4043; background: #202124; font-size: 12.5px; font-weight: 600; cursor: pointer; color: #9aa0a6; }
+  .btn-secondary { padding: 10px 16px; border-radius: 10px; border: 1px solid #3c4043; background: #202124; font-size: 14px; font-weight: 600; cursor: pointer; color: #9aa0a6; }
   .btn-whatsapp { padding: 9px 14px; border-radius: 10px; border: none; background: #25d366; font-size: 12.5px; font-weight: 700; cursor: pointer; color: #06210f; }
   .btn-whatsapp:disabled { opacity: 0.6; }
-  .error-text { color: #f28b82; font-size: 13px; margin-bottom: 10px; word-break: break-word; }
-  .searchbar { width: 100%; padding: 10px 14px; border-radius: 20px; border: 1px solid #3c4043; font-size: 13px; margin-bottom: 10px; background: #28292c; color: #e8eaed; }
+  .error-text { color: #f28b82; font-size: 14px; margin-bottom: 10px; word-break: break-word; }
+  .searchbar { width: 100%; padding: 12px 16px; border-radius: 20px; border: 1px solid #3c4043; font-size: 16px; margin-bottom: 10px; background: #28292c; color: #e8eaed; }
   .filters { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
   .filter-chip { padding: 6px 14px; border-radius: 20px; font-size: 12.5px; cursor: pointer; border: 1px solid #3c4043; background: #202124; color: #9aa0a6; display: inline-block; }
   .filter-chip.active { background: #d97a3f; color: #1a1207; border-color: #d97a3f; font-weight: 600; }
@@ -105,7 +105,7 @@
     font-size: 10px; font-weight: 600; padding: 3px 9px; border-radius: 8px; z-index: 2; max-width: 65%;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .order-address { font-size: 12.5px; color: #9aa0a6; white-space: pre-line; line-height: 1.5; margin: 0 0 10px; }
+  .order-address { font-size: 13.5px; color: #9aa0a6; white-space: pre-line; line-height: 1.55; margin: 0 0 10px; }
   .order-cancel-note { display: block; font-size: 12px; color: #f28b82; background: rgba(242,139,130,0.12); padding: 4px 9px; border-radius: 6px; margin-bottom: 6px; white-space: pre-line; }
   .order-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .btn-ship { flex: 1; padding: 9px; font-size: 13px; font-weight: 600; background: #34a853; color: #06210f; border: none; border-radius: 8px; cursor: pointer; }
@@ -211,20 +211,18 @@
   .login-box input { padding: 14px 16px; font-size: 16px; border-radius: 12px; }
   .login-box .btn-primary { padding: 16px; font-size: 16px; border-radius: 12px; margin-top: 8px; }
 
-  .brand-wrap { position: relative; }
+  .menu-row { margin-bottom: 4px; }
   .app-brand {
-    font-size: clamp(38px, 17.6vw, 91px); font-weight: 900; letter-spacing: 2px; text-align: center; color: #e8eaed;
-    margin: 14px 0 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1;
+    font-size: clamp(30px, 11.5vw, 91px); font-weight: 900; letter-spacing: 1px; text-align: center; color: #e8eaed;
+    margin: 10px 0 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1;
     white-space: nowrap;
   }
   .app-brand-sub {
-    font-size: clamp(11px, 3.6vw, 18px); font-weight: 700; letter-spacing: 8px; text-align: center; color: #d97a3f; margin: 8px 0 26px;
+    font-size: clamp(10px, 2.4vw, 18px); font-weight: 700; letter-spacing: 5px; text-align: center; color: #d97a3f; margin: 6px 0 20px;
   }
   .menu-btn {
-    position: absolute; top: 10px; left: 0;
     display: flex; align-items: center; justify-content: center; width: 38px; height: 38px;
     border-radius: 10px; background: #202124; border: 1px solid #3c4043; cursor: pointer;
-    flex-shrink: 0;
   }
   .menu-btn svg { width: 19px; height: 19px; }
   .sidebar-overlay {
@@ -1882,7 +1880,7 @@
 
     var pendingCount = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; }).length;
 
-    var shellHtml = '<div class="brand-wrap"><button class="menu-btn no-print" id="sidebarOpenBtn"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button><div class="app-brand">GURUKRUPA</div><div class="app-brand-sub">SAREES</div></div>';
+    var shellHtml = '<div class="menu-row no-print"><button class="menu-btn" id="sidebarOpenBtn"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></div><div class="app-brand">GURUKRUPA</div><div class="app-brand-sub">SAREES</div>';
     shellHtml += '<div class="tabs no-print">';
     shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook"><span class="tab-icon">\ud83d\udcf8</span>Book Orders</div>';
     shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders"><span class="tab-icon">\ud83d\udccb</span>Orders List' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
