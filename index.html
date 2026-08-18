@@ -130,8 +130,9 @@
   .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
   .modal-actions button { flex: 1; padding: 10px; border-radius: 8px; font-size: 13px; cursor: pointer; }
   .zoom-img { max-width: 100%; max-height: 80vh; border-radius: 10px; }
-  .print-slip { padding: 14px 4px; border-bottom: 1px dashed #cabfae; color: #111; }
+  .print-slip { padding: 14px 4px; border-bottom: 1px dashed #cabfae; color: #111; break-inside: avoid; page-break-inside: avoid; }
   .print-slip:last-child { border-bottom: none; }
+  @page { margin: 0.4in; }
   .slip-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
   .slip-id { font-family: monospace; font-size: 17px; font-weight: 700; }
   .slip-size { font-size: 13px; color: #444; }
@@ -194,12 +195,14 @@
   .btn-ship-print { background: #d97a3f; color: #1a1207; font-weight: 700; }
   #shipPrintArea { display: none; }
 
-  .login-wrap { max-width: 420px; margin: 40px auto; padding: 0 16px; }
-  .login-box { background: #202124; border: 1px solid #3c4043; border-radius: 20px; padding: 40px 36px; }
-  .login-box h1 { font-size: 26px; margin: 0 0 8px; color: #e8eaed; }
-  .login-box p { font-size: 15px; color: #9aa0a6; margin: 0 0 28px; }
+  .login-screen { min-height: 85vh; display: flex; align-items: center; justify-content: center; }
+  .login-wrap { width: 100%; max-width: 380px; padding: 0 16px; text-align: center; }
+  .login-brand { font-size: 44px; font-weight: 900; letter-spacing: 2px; color: #e8eaed; line-height: 1; }
+  .login-brand-sub { font-size: 13px; font-weight: 700; letter-spacing: 8px; color: #d97a3f; margin: 6px 0 32px; }
+  .login-box { background: #202124; border: 1px solid #3c4043; border-radius: 20px; padding: 32px 28px; text-align: left; box-shadow: 0 20px 60px rgba(0,0,0,0.4); }
+  .login-tagline { font-size: 14px; color: #9aa0a6; margin: 0 0 26px; text-align: center; }
   .login-box .field { margin-bottom: 20px; }
-  .login-box label { font-size: 15px; margin-bottom: 8px; }
+  .login-box label { font-size: 14px; margin-bottom: 8px; }
   .login-box input { padding: 14px 16px; font-size: 16px; border-radius: 12px; }
   .login-box .btn-primary { padding: 16px; font-size: 16px; border-radius: 12px; margin-top: 8px; }
 
@@ -229,6 +232,7 @@
 <input type="file" id="importFileInput" accept="application/json" style="display:none;">
 <datalist id="resellerList"></datalist>
 <datalist id="shopList"></datalist>
+<datalist id="courierList"></datalist>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -256,6 +260,8 @@
     shipSelection: {},
     selectedShop: null,
     shopBookingView: 'need',
+    couriers: [],
+    manageListsTab: 'resellers',
     loginError: ''
   };
 
@@ -388,6 +394,28 @@
     });
   }
 
+  function createThumbnailBlob(sourceBlob, maxW){
+    return new Promise(function(resolve, reject){
+      var img = new Image();
+      var objUrl = URL.createObjectURL(sourceBlob);
+      img.onerror = function(){ URL.revokeObjectURL(objUrl); reject(new Error('Could not create thumbnail')); };
+      img.onload = function(){
+        URL.revokeObjectURL(objUrl);
+        var w = img.width, h = img.height;
+        if(w > maxW){ h = Math.round(h * (maxW / w)); w = maxW; }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(function(blob){
+          if(!blob){ reject(new Error('Could not finalize thumbnail')); return; }
+          resolve(blob);
+        }, 'image/jpeg', 0.6);
+      };
+      img.src = objUrl;
+    });
+  }
+
   // ===== AUTH =====
 
   async function initAuth(){
@@ -433,14 +461,21 @@
       var { data: orders, error: ordersErr } = await sb
         .from('orders')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(300);
       if(ordersErr) throw ordersErr;
 
-      var { data: items, error: itemsErr } = await sb
-        .from('order_items')
-        .select('*')
-        .order('item_index', { ascending: true });
-      if(itemsErr) throw itemsErr;
+      var orderIds = (orders||[]).map(function(o){ return o.id; });
+      var items = [];
+      if(orderIds.length > 0){
+        var { data: itemsData, error: itemsErr } = await sb
+          .from('order_items')
+          .select('*')
+          .in('order_id', orderIds)
+          .order('item_index', { ascending: true });
+        if(itemsErr) throw itemsErr;
+        items = itemsData || [];
+      }
 
       var byOrder = {};
       (items||[]).forEach(function(it){
@@ -455,11 +490,25 @@
 
       var names = {};
       state.orders.forEach(function(o){ if(o.reseller_name) names[o.reseller_name.toLowerCase()] = o.reseller_name; });
-      state.resellers = Object.values(names).sort();
 
       var shopNames = {};
       (items||[]).forEach(function(it){ if(it.shop_name) shopNames[it.shop_name.toLowerCase()] = it.shop_name; });
+
+      var courierNames = {};
+      state.orders.forEach(function(o){ if(o.courier) courierNames[o.courier.toLowerCase()] = o.courier; });
+
+      var { data: resellerRows } = await sb.from('resellers').select('name');
+      (resellerRows||[]).forEach(function(r){ names[r.name.toLowerCase()] = r.name; });
+
+      var { data: shopRows } = await sb.from('shops').select('name');
+      (shopRows||[]).forEach(function(r){ shopNames[r.name.toLowerCase()] = r.name; });
+
+      var { data: courierRows } = await sb.from('couriers').select('name');
+      (courierRows||[]).forEach(function(r){ courierNames[r.name.toLowerCase()] = r.name; });
+
+      state.resellers = Object.values(names).sort();
       state.shops = Object.values(shopNames).sort();
+      state.couriers = Object.values(courierNames).sort();
 
     }catch(e){
       showToast('Could not load orders: ' + (e && e.message ? e.message : 'unknown error'));
@@ -502,21 +551,29 @@
     var uploadPromises = photoEntries.map(async function(entry, i){
       var pieceId = orderId + '-' + (i + 1);
       var stampedBlob = await drawWatermarkedBlob(entry.blob, pieceId, entry.sizeVal);
+      var thumbBlob = await createThumbnailBlob(stampedBlob, 260);
+
       var path = orderId + '/' + Date.now() + '_' + i + '.jpg';
+      var thumbPath = orderId + '/' + Date.now() + '_' + i + '_thumb.jpg';
+
       var { error: upErr } = await sb.storage.from('order-photos').upload(path, stampedBlob, { contentType: 'image/jpeg' });
       if(upErr) throw new Error('Photo ' + (i+1) + ' upload failed: ' + upErr.message);
+      var { error: thumbErr } = await sb.storage.from('order-photos').upload(thumbPath, thumbBlob, { contentType: 'image/jpeg' });
+      if(thumbErr) throw new Error('Thumbnail ' + (i+1) + ' upload failed: ' + thumbErr.message);
+
       var { data: pub } = sb.storage.from('order-photos').getPublicUrl(path);
-      return pub.publicUrl;
+      var { data: pubThumb } = sb.storage.from('order-photos').getPublicUrl(thumbPath);
+      return { photoUrl: pub.publicUrl, thumbUrl: pubThumb.publicUrl };
     });
 
     var results = await Promise.all([orderInsertPromise].concat(uploadPromises));
     var orderResult = results[0];
     if(orderResult.error) throw new Error('Order save failed: ' + orderResult.error.message);
-    var uploadedUrls = results.slice(1);
+    var uploaded = results.slice(1);
 
-    var itemRows = uploadedUrls.map(function(url, idx){
+    var itemRows = uploaded.map(function(u, idx){
       return {
-        order_id: orderId, item_index: idx, photo_url: url, status: 'pending',
+        order_id: orderId, item_index: idx, photo_url: u.photoUrl, thumb_url: u.thumbUrl, status: 'pending',
         shop_name: (photoEntries[idx].shopVal || '').trim() || null,
         size: (photoEntries[idx].sizeVal || '').trim() || null
       };
@@ -589,31 +646,33 @@
       groups[sel.orderId].push(sel.itemDbId);
     });
 
-    var slipsHtml = '';
-    for(var orderId in groups){
-      var ord = state.orders.find(function(o){ return o.id === orderId; });
-      if(!ord) continue;
-      var dbIds = groups[orderId];
-      var { error } = await sb.from('order_items').update({
+    var orderIds = Object.keys(groups);
+    var updatePromises = orderIds.map(function(orderId){
+      return sb.from('order_items').update({
         status: 'shipped', shipped_at: new Date().toISOString(), shipped_by: state.session.user.id
-      }).in('id', dbIds);
-      if(error){ showToast('Could not mark shipped: ' + error.message); return; }
+      }).in('id', groups[orderId]);
+    });
+    var updateResults = await Promise.all(updatePromises);
+    var failedUpdate = updateResults.find(function(r){ return r.error; });
+    if(failedUpdate){ showToast('Could not mark shipped: ' + failedUpdate.error.message); return; }
+
+    var nowIso = new Date().toISOString();
+    var slipsHtml = '';
+    orderIds.forEach(function(orderId){
+      var ord = state.orders.find(function(o){ return o.id === orderId; });
+      if(!ord) return;
+      var dbIds = groups[orderId];
 
       (ord.items||[]).forEach(function(it){
         if(dbIds.indexOf(it.id) !== -1){
           it.status = 'shipped';
-          it.shipped_at = new Date().toISOString();
+          it.shipped_at = nowIso;
           it.shipped_by = state.session.user.id;
         }
       });
 
       var prog = orderProgress(ord);
       var shippingNow = dbIds.length;
-      var shippedShopNames = {};
-      (ord.items||[]).forEach(function(it){
-        if(dbIds.indexOf(it.id) !== -1 && it.shop_name){ shippedShopNames[it.shop_name.toLowerCase()] = it.shop_name; }
-      });
-      var shopList = Object.values(shippedShopNames);
       slipsHtml += '<div class="print-slip">';
       slipsHtml += '<div class="slip-top"><span class="slip-id">Order #' + esc(ord.id) + '</span>';
       slipsHtml += '</div>';
@@ -621,12 +680,10 @@
       if(prog.total > 1){
         slipsHtml += '<div class="slip-time">Shipping ' + shippingNow + ' of ' + prog.total + ' piece(s) in this order</div>';
       }
-      slipsHtml += '<p class="slip-name">' + esc(ord.reseller_name) + '</p>';
-      if(shopList.length > 0) slipsHtml += '<p class="slip-courier">Shop' + (shopList.length>1?'s':'') + ': ' + esc(shopList.join(', ')) + '</p>';
       if(ord.courier) slipsHtml += '<p class="slip-courier">Courier: ' + esc(ord.courier) + '</p>';
       slipsHtml += '<p class="slip-address">' + esc(ord.address) + '</p>';
       slipsHtml += '</div>';
-    }
+    });
 
     document.getElementById('shipPrintArea').innerHTML = slipsHtml;
     window.print();
@@ -673,6 +730,91 @@
       if(!reason){ document.getElementById('cancelReasonError').style.display = 'block'; return; }
       cancelOrder(id, reason);
     });
+  }
+
+  // ===== MANAGE LISTS (resellers / shops / couriers) =====
+
+  function openManageLists(){
+    renderManageListsModal();
+  }
+
+  function renderManageListsModal(){
+    var tab = state.manageListsTab || 'resellers';
+    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers' };
+    var listMap = { resellers: state.resellers, shops: state.shops, couriers: state.couriers || [] };
+    var labelMap = { resellers: 'Reseller', shops: 'Shop', couriers: 'Courier' };
+
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:400px;text-align:left;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0;">Manage Lists</p>';
+    html += '<button id="manageListsCloseBtn" style="background:none;border:none;color:#9aa0a6;font-size:20px;cursor:pointer;">\u00d7</button></div>';
+    html += '<div class="filters">';
+    ['resellers','shops','couriers'].forEach(function(t){
+      html += '<div class="filter-chip' + (tab===t?' active':'') + '" data-mtab="' + t + '">' + labelMap[t] + 's</div>';
+    });
+    html += '</div>';
+    html += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
+    html += '<input type="text" id="newListItemInput" placeholder="Add new ' + labelMap[tab].toLowerCase() + '" style="flex:1;">';
+    html += '<button class="btn-secondary" id="addListItemBtn">Add</button></div>';
+    html += '<div style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">';
+    var list = listMap[tab];
+    if(list.length === 0){
+      html += '<p style="font-size:12.5px;color:#80868b;">None added yet.</p>';
+    }
+    list.forEach(function(name){
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;background:#202124;border:1px solid #3c4043;border-radius:8px;padding:8px 10px;">';
+      html += '<span style="font-size:13px;">' + esc(name) + '</span>';
+      html += '<button class="del-list-item-btn" data-name="' + esc(name) + '" style="background:none;border:none;color:#f28b82;cursor:pointer;font-size:16px;">\u00d7</button></div>';
+    });
+    html += '</div></div></div>';
+
+    document.getElementById('modalHost').innerHTML = html;
+
+    document.getElementById('manageListsCloseBtn').addEventListener('click', closeModal);
+    document.querySelectorAll('[data-mtab]').forEach(function(chip){
+      chip.addEventListener('click', function(){
+        state.manageListsTab = chip.getAttribute('data-mtab');
+        renderManageListsModal();
+      });
+    });
+    document.getElementById('addListItemBtn').addEventListener('click', addListItem);
+    document.getElementById('newListItemInput').addEventListener('keydown', function(e){
+      if(e.key === 'Enter') addListItem();
+    });
+    document.querySelectorAll('.del-list-item-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        deleteListItem(btn.getAttribute('data-name'));
+      });
+    });
+  }
+
+  async function addListItem(){
+    var tab = state.manageListsTab || 'resellers';
+    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers' };
+    var input = document.getElementById('newListItemInput');
+    var name = (input.value || '').trim();
+    if(!name) return;
+    var { error } = await sb.from(tableMap[tab]).insert({ name: name });
+    if(error){
+      if(error.code === '23505'){ showToast('Already in the list'); }
+      else{ showToast('Could not add: ' + error.message); }
+      return;
+    }
+    if(tab === 'resellers'){ state.resellers = Array.from(new Set(state.resellers.concat([name]))).sort(); }
+    else if(tab === 'shops'){ state.shops = Array.from(new Set(state.shops.concat([name]))).sort(); }
+    else{ state.couriers = Array.from(new Set((state.couriers||[]).concat([name]))).sort(); }
+    renderManageListsModal();
+  }
+
+  async function deleteListItem(name){
+    var tab = state.manageListsTab || 'resellers';
+    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers' };
+    var { error } = await sb.from(tableMap[tab]).delete().eq('name', name);
+    if(error){ showToast('Could not remove: ' + error.message); return; }
+    if(tab === 'resellers'){ state.resellers = state.resellers.filter(function(n){ return n !== name; }); }
+    else if(tab === 'shops'){ state.shops = state.shops.filter(function(n){ return n !== name; }); }
+    else{ state.couriers = (state.couriers||[]).filter(function(n){ return n !== name; }); }
+    renderManageListsModal();
   }
 
   // ===== DRAW / COVER-UP TOOL =====
@@ -802,13 +944,14 @@
   // ===== LOGIN SCREEN =====
 
   function renderLogin(){
-    var html = '<div class="login-wrap"><div class="login-box">';
-    html += '<h1>Gurukrupa Sarees</h1><p>Sign in to your account</p>';
+    var html = '<div class="login-screen"><div class="login-wrap"><div class="login-brand">GURUKRUPA</div><div class="login-brand-sub">SAREES</div>';
+    html += '<div class="login-box">';
+    html += '<p class="login-tagline">Sign in to your account</p>';
     html += '<div class="field"><label>Email</label><input type="email" id="loginEmail"></div>';
     html += '<div class="field"><label>Password</label><input type="password" id="loginPassword"></div>';
     if(state.loginError){ html += '<div class="error-text">' + esc(state.loginError) + '</div>'; }
     html += '<button class="btn-primary" id="loginBtn">Sign in</button>';
-    html += '</div></div>';
+    html += '</div></div></div>';
     return html;
   }
 
@@ -834,8 +977,8 @@
       html += '</div>';
     });
     html += '</div>';
-    if(state.bookPhotos.length < 6){
-      html += '<div class="btn-add-photo" id="addPhotoBtn">' + (state.processing ? 'Processing...' : '+ Add photo (' + state.bookPhotos.length + '/6)') + '</div>';
+    if(state.bookPhotos.length < 50){
+      html += '<div class="btn-add-photo" id="addPhotoBtn">' + (state.processing ? 'Processing...' : '+ Add photo (' + state.bookPhotos.length + '/50)') + '</div>';
     }
     html += '<input type="file" id="fileInput" accept="image/*" multiple style="display:none;"></div>';
 
@@ -857,7 +1000,7 @@
 
     html += '<div class="field"><label>Reseller name</label><input type="text" id="nameInput" list="resellerList" value="' + esc(state.nameVal||'') + '">';
     html += '<div class="field-hint">Start typing to see saved resellers</div></div>';
-    html += '<div class="field"><label>Courier (optional)</label><input type="text" id="courierInput" value="' + esc(state.courierVal||'') + '"></div>';
+    html += '<div class="field"><label>Courier (optional)</label><input type="text" id="courierInput" list="courierList" value="' + esc(state.courierVal||'') + '"></div>';
     html += '<div class="field"><label>Full delivery address</label><textarea id="addressInput" rows="5" placeholder="Name, house/flat no, street, city, state, pincode, contact">' + esc(state.addressVal||'') + '</textarea></div>';
     if(state.bookError){ html += '<div class="error-text">' + esc(state.bookError) + '</div>'; }
     html += '<button class="btn-primary" id="saveOrderBtn" ' + (state.saving||state.processing ? 'disabled' : '') + '>' + (state.saving ? 'Saving...' : 'Save order') + '</button>';
@@ -870,6 +1013,8 @@
     dl.innerHTML = state.resellers.map(function(r){ return '<option value="' + esc(r) + '">'; }).join('');
     var shopDl = document.getElementById('shopList');
     shopDl.innerHTML = state.shops.map(function(s){ return '<option value="' + esc(s) + '">'; }).join('');
+    var courierDl = document.getElementById('courierList');
+    courierDl.innerHTML = (state.couriers||[]).map(function(c){ return '<option value="' + esc(c) + '">'; }).join('');
 
     document.getElementById('addPhotoBtn') && document.getElementById('addPhotoBtn').addEventListener('click', function(){
       document.getElementById('fileInput').click();
@@ -881,10 +1026,10 @@
       state.processing = true;
       render();
       try{
-        var slice = files.slice(0, 6 - state.bookPhotos.length);
+        var slice = files.slice(0, 50 - state.bookPhotos.length);
         var blobs = await Promise.all(slice.map(function(f){ return resizeImageToBlob(f, 900); }));
         var withPreview = blobs.map(function(b){ return { blob: b, previewUrl: URL.createObjectURL(b), shopVal: '', sizeVal: '' }; });
-        state.bookPhotos = state.bookPhotos.concat(withPreview).slice(0,6);
+        state.bookPhotos = state.bookPhotos.concat(withPreview).slice(0,50);
       }catch(err){
         state.bookError = 'Could not process a photo: ' + (err && err.message ? err.message : 'unknown error');
       }
@@ -989,7 +1134,7 @@
         var shippedClass = item.status === 'shipped' ? ' shipped-item' : '';
         html += '<div class="item-wrap' + shippedClass + '">';
         if(item.status === 'shipped'){ html += '<span class="item-shipped-tag">Shipped</span>'; }
-        html += '<img data-src="' + item.photo_url + '" class="orderPhoto" src="' + item.photo_url + '" loading="lazy">';
+        html += '<img data-src="' + item.photo_url + '" class="orderPhoto" src="' + (item.thumb_url || item.photo_url) + '" loading="lazy">';
         if(item.shop_name){ html += '<span class="shop-name-tag">' + esc(item.shop_name) + '</span>'; }
         html += '</div>';
       });
@@ -1092,7 +1237,7 @@
       var key = String(entry.item.id);
       var isSel = !!state.shipSelection[key];
       html += '<div class="album-cell' + (isSel?' selected':'') + '" data-key="' + key + '" data-order="' + entry.order.id + '" data-dbid="' + entry.item.id + '">';
-      html += '<img src="' + entry.item.photo_url + '" loading="lazy"><div class="album-check">\u2713</div>';
+      html += '<img src="' + (entry.item.thumb_url || entry.item.photo_url) + '" loading="lazy"><div class="album-check">\u2713</div>';
       html += '<button class="album-zoom-btn" data-zoom="' + esc(entry.item.photo_url) + '" aria-label="View full size"><svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"></circle><line x1="15.5" y1="15.5" x2="21" y2="21"></line></svg></button>';
       if(entry.item.shop_name){ html += '<span class="shop-name-tag">' + esc(entry.item.shop_name) + '</span>'; }
       html += '</div>';
@@ -1197,7 +1342,7 @@
         var pieceId = entry.order.id + '-' + (entry.itemIndex+1);
         var st = entry.order.status === 'cancelled' ? 'cancelled' : entry.item.status;
         html += '<div class="shop-tray-item">';
-        html += '<img class="orderPhoto" data-src="' + entry.item.photo_url + '" src="' + entry.item.photo_url + '" loading="lazy">';
+        html += '<img class="orderPhoto" data-src="' + entry.item.photo_url + '" src="' + (entry.item.thumb_url || entry.item.photo_url) + '" loading="lazy">';
         if(mode === 'all'){
           html += '<span class="status-pill ' + statusClass[st] + '" style="position:absolute;top:4px;right:4px;font-size:9px;padding:2px 6px;">' + statusLabel[st] + '</span>';
         }
@@ -1305,7 +1450,7 @@
     var pendingCount = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; }).length;
 
     var shellHtml = '<div class="app-brand">GURUKRUPA</div>';
-    shellHtml += '<div class="user-bar"><span>Signed in: ' + esc(currentUserLabel()) + '</span><button id="logoutBtn">Sign out</button></div>';
+    shellHtml += '<div class="user-bar"><span>Signed in: ' + esc(currentUserLabel()) + '</span><span><button id="manageListsBtn" style="margin-right:14px;">Manage Lists</button><button id="logoutBtn">Sign out</button></span></div>';
     shellHtml += '<div class="tabs no-print">';
     shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook">Book</div>';
     shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders">Orders' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
@@ -1315,6 +1460,7 @@
 
     appEl.innerHTML = shellHtml;
     document.getElementById('logoutBtn').addEventListener('click', logout);
+    document.getElementById('manageListsBtn').addEventListener('click', openManageLists);
     document.getElementById('tabBtnBook').addEventListener('click', function(){ state.tab='book'; render(); });
     document.getElementById('tabBtnOrders').addEventListener('click', function(){ state.tab='orders'; render(); });
     document.getElementById('tabBtnShip').addEventListener('click', function(){ state.tab='ship'; render(); });
