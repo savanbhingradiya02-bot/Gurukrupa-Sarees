@@ -24,13 +24,15 @@
     .order-photos { column-count: 10; }
     .album-grid { grid-template-columns: repeat(12,1fr); }
   }
-  .tabs { display: flex; gap: 6px; margin-bottom: 18px; position: sticky; top: 0; background: #131314; padding: 10px 0; z-index: 5; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; position: sticky; top: 0; background: #131314; padding: 10px 0; z-index: 5; }
   .tab-btn {
-    flex: 1; padding: 10px 4px; border-radius: 10px; border: 1px solid #3c4043;
-    background: #202124; color: #9aa0a6; font-size: 11px; font-weight: 600; cursor: pointer;
-    position: relative;
+    flex: 1; padding: 12px 6px; border-radius: 12px; border: 1.5px solid #3c4043;
+    background: #202124; color: #9aa0a6; font-size: 11.5px; font-weight: 700; cursor: pointer;
+    position: relative; text-align: center; transition: all 0.15s;
   }
-  .tab-btn.active { border-color: #d97a3f; background: rgba(217,122,63,0.18); color: #f2a76a; }
+  .tab-btn .tab-icon { display: block; font-size: 16px; margin-bottom: 3px; }
+  .tab-btn.active { border-color: #d97a3f; background: linear-gradient(180deg, rgba(217,122,63,0.25), rgba(217,122,63,0.1)); color: #f2a76a; box-shadow: 0 2px 10px rgba(217,122,63,0.25); }
+  .tab-btn:hover { border-color: #5f6368; }
   .badge {
     position: absolute; top: -4px; right: 10px; background: #e05c5c; color: white;
     font-size: 10px; font-weight: 700; border-radius: 10px; padding: 1px 6px; min-width: 16px; text-align: center;
@@ -65,6 +67,8 @@
   .btn-primary { width: 100%; padding: 13px; border-radius: 10px; border: none; background: #d97a3f; color: #1a1207; font-size: 14px; font-weight: 700; cursor: pointer; }
   .btn-primary:disabled { opacity: 0.5; }
   .btn-secondary { padding: 9px 14px; border-radius: 10px; border: 1px solid #3c4043; background: #202124; font-size: 12.5px; font-weight: 600; cursor: pointer; color: #9aa0a6; }
+  .btn-whatsapp { padding: 9px 14px; border-radius: 10px; border: none; background: #25d366; font-size: 12.5px; font-weight: 700; cursor: pointer; color: #06210f; }
+  .btn-whatsapp:disabled { opacity: 0.6; }
   .error-text { color: #f28b82; font-size: 13px; margin-bottom: 10px; word-break: break-word; }
   .searchbar { width: 100%; padding: 10px 14px; border-radius: 20px; border: 1px solid #3c4043; font-size: 13px; margin-bottom: 10px; background: #28292c; color: #e8eaed; }
   .filters { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -210,8 +214,18 @@
     font-size: 32px; font-weight: 900; letter-spacing: 1px; text-align: center; color: #e8eaed;
     margin: 8px 0 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
   }
-  .user-bar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #80868b; margin-bottom: 10px; }
-  .user-bar button { background: none; border: none; color: #f2a76a; font-size: 12px; cursor: pointer; text-decoration: underline; padding: 0; }
+  .user-bar {
+    display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: #9aa0a6;
+    margin-bottom: 16px; padding: 10px 14px; background: #1a1b1c; border: 1px solid #2e2f31; border-radius: 12px;
+    flex-wrap: wrap; gap: 8px;
+  }
+  .user-bar-actions { display: flex; gap: 8px; }
+  .user-bar button {
+    background: #28292c; border: 1px solid #3c4043; color: #e8eaed; font-size: 12px; font-weight: 600;
+    cursor: pointer; padding: 7px 14px; border-radius: 20px; transition: background 0.15s;
+  }
+  .user-bar button:hover { background: #33353a; }
+  .user-bar #logoutBtn { color: #f28b82; border-color: #5c3a3a; }
   @media print {
     .no-print { display: none !important; }
     body * { visibility: hidden; }
@@ -235,6 +249,7 @@
 <datalist id="courierList"></datalist>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 (function(){
 
@@ -260,8 +275,13 @@
     shipSelection: {},
     selectedShop: null,
     shopBookingView: 'need',
+    shopBookingQuery: '',
     couriers: [],
     manageListsTab: 'resellers',
+    trackingOcrQueue: [],
+    trackingOcrProcessing: false,
+    trackingUnmatched: [],
+    selectedTrackingReseller: null,
     loginError: ''
   };
 
@@ -272,6 +292,19 @@
   }
 
   function escapeRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  function tryAutocomplete(inputEl, suggestions){
+    var val = (inputEl.value || '').trim();
+    if(!val) return;
+    var lower = val.toLowerCase();
+    var alreadyExact = suggestions.some(function(s){ return s.toLowerCase() === lower; });
+    if(alreadyExact) return;
+    var matches = suggestions.filter(function(s){ return s.toLowerCase().indexOf(lower) !== -1; });
+    if(matches.length === 1){
+      inputEl.value = matches[0];
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
 
   function highlightText(text, query){
     var str = text == null ? '' : String(text);
@@ -423,7 +456,14 @@
     state.session = data.session;
     sb.auth.onAuthStateChange(function(event, session){
       state.session = session;
-      if(session){ loadOrders(); } else { render(); }
+      if(event === 'SIGNED_IN'){
+        loadOrders();
+      }else if(event === 'SIGNED_OUT'){
+        render();
+      }
+      // Other events (e.g. TOKEN_REFRESHED when the tab regains focus) update the
+      // session silently without reloading data or re-rendering, so unsaved text
+      // in any input field is never wiped out.
     });
     if(state.session){
       await loadOrders();
@@ -497,14 +537,30 @@
       var courierNames = {};
       state.orders.forEach(function(o){ if(o.courier) courierNames[o.courier.toLowerCase()] = o.courier; });
 
-      var { data: resellerRows } = await sb.from('resellers').select('name');
-      (resellerRows||[]).forEach(function(r){ names[r.name.toLowerCase()] = r.name; });
+      var { data: resellerRows } = await sb.from('resellers').select('name,hidden');
+      var hiddenResellers = {};
+      (resellerRows||[]).forEach(function(r){
+        if(r.hidden){ hiddenResellers[r.name.toLowerCase()] = true; }
+        else{ names[r.name.toLowerCase()] = r.name; }
+      });
 
-      var { data: shopRows } = await sb.from('shops').select('name');
-      (shopRows||[]).forEach(function(r){ shopNames[r.name.toLowerCase()] = r.name; });
+      var { data: shopRows } = await sb.from('shops').select('name,hidden');
+      var hiddenShops = {};
+      (shopRows||[]).forEach(function(r){
+        if(r.hidden){ hiddenShops[r.name.toLowerCase()] = true; }
+        else{ shopNames[r.name.toLowerCase()] = r.name; }
+      });
 
-      var { data: courierRows } = await sb.from('couriers').select('name');
-      (courierRows||[]).forEach(function(r){ courierNames[r.name.toLowerCase()] = r.name; });
+      var { data: courierRows } = await sb.from('couriers').select('name,hidden');
+      var hiddenCouriers = {};
+      (courierRows||[]).forEach(function(r){
+        if(r.hidden){ hiddenCouriers[r.name.toLowerCase()] = true; }
+        else{ courierNames[r.name.toLowerCase()] = r.name; }
+      });
+
+      Object.keys(hiddenResellers).forEach(function(k){ delete names[k]; });
+      Object.keys(hiddenShops).forEach(function(k){ delete shopNames[k]; });
+      Object.keys(hiddenCouriers).forEach(function(k){ delete courierNames[k]; });
 
       state.resellers = Object.values(names).sort();
       state.shops = Object.values(shopNames).sort();
@@ -754,7 +810,7 @@
     });
     html += '</div>';
     html += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
-    html += '<input type="text" id="newListItemInput" placeholder="Add new ' + labelMap[tab].toLowerCase() + '" style="flex:1;">';
+    html += '<input type="text" id="newListItemInput" autocomplete="off" placeholder="Add new ' + labelMap[tab].toLowerCase() + '" style="flex:1;">';
     html += '<button class="btn-secondary" id="addListItemBtn">Add</button></div>';
     html += '<div style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">';
     var list = listMap[tab];
@@ -794,27 +850,303 @@
     var input = document.getElementById('newListItemInput');
     var name = (input.value || '').trim();
     if(!name) return;
-    var { error } = await sb.from(tableMap[tab]).insert({ name: name });
+    var { error } = await sb.from(tableMap[tab]).upsert({ name: name, hidden: false }, { onConflict: 'name' });
     if(error){
-      if(error.code === '23505'){ showToast('Already in the list'); }
-      else{ showToast('Could not add: ' + error.message); }
+      showToast('Could not add: ' + error.message);
       return;
     }
     if(tab === 'resellers'){ state.resellers = Array.from(new Set(state.resellers.concat([name]))).sort(); }
     else if(tab === 'shops'){ state.shops = Array.from(new Set(state.shops.concat([name]))).sort(); }
     else{ state.couriers = Array.from(new Set((state.couriers||[]).concat([name]))).sort(); }
     renderManageListsModal();
+    var refreshedInput = document.getElementById('newListItemInput');
+    if(refreshedInput) refreshedInput.focus();
   }
 
   async function deleteListItem(name){
     var tab = state.manageListsTab || 'resellers';
     var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers' };
-    var { error } = await sb.from(tableMap[tab]).delete().eq('name', name);
+    var { error } = await sb.from(tableMap[tab]).upsert({ name: name, hidden: true }, { onConflict: 'name' });
     if(error){ showToast('Could not remove: ' + error.message); return; }
     if(tab === 'resellers'){ state.resellers = state.resellers.filter(function(n){ return n !== name; }); }
     else if(tab === 'shops'){ state.shops = state.shops.filter(function(n){ return n !== name; }); }
     else{ state.couriers = (state.couriers||[]).filter(function(n){ return n !== name; }); }
     renderManageListsModal();
+  }
+
+  // ===== TRACKING TAB =====
+
+  function renderTrackingTab(){
+    var html = '';
+
+    html += '<div style="margin-bottom:22px;">';
+    html += '<label>Scan parcel photos (slip + tracking sticker)</label>';
+    html += '<button class="btn-add-photo" id="scanParcelBtn" style="margin-bottom:0;" ' + (state.trackingOcrProcessing?'disabled':'') + '>' + (state.trackingOcrProcessing ? 'Reading photos\u2026' : '+ Upload parcel photos') + '</button>';
+    html += '<input type="file" id="parcelFileInput" accept="image/*" multiple style="display:none;">';
+    html += '<div class="field-hint">Include the printed order ID clearly in the photo for best results.</div>';
+    html += '</div>';
+
+    if(state.trackingUnmatched.length > 0){
+      html += '<div style="margin-bottom:24px;">';
+      html += '<p style="font-size:14px;font-weight:700;color:#e8eaed;margin:0 0 4px;">Needs review (' + state.trackingUnmatched.length + ')</p>';
+      html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 12px;">Couldn\u2019t confidently match these \u2014 pick the right order.</p>';
+      state.trackingUnmatched.forEach(function(entry, idx){
+        html += '<div class="order-card">';
+        html += '<div class="item-wrap"><img src="' + entry.previewUrl + '" style="width:100%;height:auto;border-radius:8px;display:block;"></div>';
+        html += '<input type="text" class="unmatchedOrderSearch" data-idx="' + idx + '" list="allOrderIdsList" autocomplete="off" placeholder="Type order ID (e.g. 1000)" style="margin-top:10px;">';
+        html += '<div style="display:flex;gap:8px;margin-top:8px;">';
+        html += '<button class="btn-secondary unmatchedAttachBtn" data-idx="' + idx + '" style="flex:1;">Attach to order</button>';
+        html += '<button class="btn-secondary unmatchedSkipBtn" data-idx="' + idx + '" style="flex:1;color:#f28b82;">Discard</button>';
+        html += '</div></div>';
+      });
+      html += '<datalist id="allOrderIdsList">' + state.orders.map(function(o){ return '<option value="' + esc(o.id) + '">'; }).join('') + '</datalist>';
+      html += '</div>';
+    }
+
+    var needsTracking = state.orders.filter(function(o){
+      return o.status !== 'cancelled' && orderDisplayStatus(o) === 'shipped' && !o.tracking_number;
+    });
+    html += '<div style="margin-bottom:24px;">';
+    html += '<p style="font-size:14px;font-weight:700;color:#e8eaed;margin:0 0 10px;">Add tracking number (' + needsTracking.length + ' shipped, missing)</p>';
+    if(needsTracking.length === 0){
+      html += '<p style="font-size:12.5px;color:#80868b;">All shipped orders have a tracking number.</p>';
+    }
+    needsTracking.forEach(function(o){
+      html += '<div class="order-card">';
+      html += '<div class="order-top"><span class="order-id">#' + esc(o.id) + '</span><span style="font-size:12px;color:#9aa0a6;">' + esc(o.reseller_name) + '</span></div>';
+      html += '<div style="display:flex;gap:8px;margin-top:8px;">';
+      html += '<input type="text" class="trackingNumInput" data-order="' + esc(o.id) + '" autocomplete="off" placeholder="Tracking / AWB number" style="flex:1;">';
+      html += '<button class="btn-secondary saveTrackingNumBtn" data-order="' + esc(o.id) + '">Save</button>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+
+    var byReseller = {};
+    state.orders.forEach(function(o){
+      if((o.tracking_photo_url || o.tracking_number) && !o.tracking_shared_at){
+        var key = o.reseller_name || 'Unknown';
+        if(!byReseller[key]) byReseller[key] = [];
+        byReseller[key].push(o);
+      }
+    });
+    var resellerKeys = Object.keys(byReseller).sort();
+    html += '<div>';
+    html += '<p style="font-size:14px;font-weight:700;color:#e8eaed;margin:0 0 10px;">Share tracking to client</p>';
+    if(resellerKeys.length === 0){
+      html += '<p style="font-size:12.5px;color:#80868b;">Nothing ready to share yet.</p>';
+    }
+    resellerKeys.forEach(function(reseller){
+      var orders = byReseller[reseller];
+      html += '<div class="shop-row">';
+      html += '<div class="shop-row-header">';
+      html += '<span class="shop-row-name">' + esc(reseller) + '</span>';
+      html += '<span class="shop-row-count">' + orders.length + ' order' + (orders.length!==1?'s':'') + '</span>';
+      html += '<button class="btn-secondary reseller-share-btn" data-reseller="' + esc(reseller) + '">Share to WhatsApp</button>';
+      html += '</div>';
+      html += '<div class="shop-row-tray">';
+      orders.forEach(function(o){
+        html += '<div class="shop-tray-item">';
+        if(o.tracking_photo_url){
+          html += '<img src="' + o.tracking_photo_url + '" class="orderPhoto" data-src="' + o.tracking_photo_url + '">';
+        }else{
+          html += '<div style="width:100%;height:80px;display:flex;align-items:center;justify-content:center;background:#28292c;color:#80868b;font-size:11px;">No photo</div>';
+        }
+        html += '<div class="shop-tray-caption">#' + esc(o.id) + (o.tracking_number ? ' \u00b7 ' + esc(o.tracking_number) : ' \u00b7 no number yet') + '</div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    });
+    html += '</div>';
+
+    return html;
+  }
+
+  function wireTrackingTab(){
+    document.getElementById('scanParcelBtn').addEventListener('click', function(){
+      document.getElementById('parcelFileInput').click();
+    });
+    document.getElementById('parcelFileInput').addEventListener('change', function(e){
+      var files = Array.prototype.slice.call(e.target.files || []);
+      if(files.length === 0) return;
+      scanParcelPhotos(files);
+    });
+
+    document.querySelectorAll('.unmatchedAttachBtn').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var idx = parseInt(btn.getAttribute('data-idx'), 10);
+        var input = document.querySelector('.unmatchedOrderSearch[data-idx="' + idx + '"]');
+        var orderId = (input.value || '').trim();
+        var ord = state.orders.find(function(o){ return o.id === orderId; });
+        if(!ord){ showToast('No order with that ID'); return; }
+        await attachTrackingPhoto(ord, state.trackingUnmatched[idx].blob);
+        state.trackingUnmatched.splice(idx, 1);
+        showToast('Attached to order #' + orderId);
+        render();
+      });
+    });
+    document.querySelectorAll('.unmatchedOrderSearch').forEach(function(inp){
+      inp.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          tryAutocomplete(inp, state.orders.map(function(o){ return o.id; }));
+          var idx = inp.getAttribute('data-idx');
+          var btn = document.querySelector('.unmatchedAttachBtn[data-idx="' + idx + '"]');
+          if(btn) btn.click();
+        }
+      });
+    });
+    document.querySelectorAll('.unmatchedSkipBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var idx = parseInt(btn.getAttribute('data-idx'), 10);
+        state.trackingUnmatched.splice(idx, 1);
+        render();
+      });
+    });
+
+    document.querySelectorAll('.saveTrackingNumBtn').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var orderId = btn.getAttribute('data-order');
+        var input = document.querySelector('.trackingNumInput[data-order="' + orderId + '"]');
+        var val = (input.value || '').trim();
+        if(!val){ showToast('Enter a tracking number'); return; }
+        var { error } = await sb.from('orders').update({ tracking_number: val }).eq('id', orderId);
+        if(error){ showToast('Could not save: ' + error.message); return; }
+        var ord = state.orders.find(function(o){ return o.id === orderId; });
+        if(ord) ord.tracking_number = val;
+        showToast('Tracking number saved');
+        render();
+      });
+    });
+    document.querySelectorAll('.trackingNumInput').forEach(function(inp){
+      inp.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          var orderId = inp.getAttribute('data-order');
+          var btn = document.querySelector('.saveTrackingNumBtn[data-order="' + orderId + '"]');
+          if(btn) btn.click();
+        }
+      });
+    });
+
+    document.querySelectorAll('.orderPhoto').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+
+    document.querySelectorAll('.reseller-share-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){ shareTrackingToWhatsApp(btn.getAttribute('data-reseller'), btn); });
+    });
+  }
+
+  async function scanParcelPhotos(files){
+    state.trackingOcrProcessing = true;
+    render();
+
+    for(var i=0;i<files.length;i++){
+      try{
+        var resizedBlob = await resizeImageToBlob(files[i], 1000);
+        var result = await Tesseract.recognize(resizedBlob, 'eng');
+        var text = (result && result.data) ? result.data.text : '';
+        var match = findOrderIdInText(text);
+        var matchedOrder = match ? state.orders.find(function(o){ return o.id === match; }) : null;
+        if(matchedOrder){
+          await attachTrackingPhoto(matchedOrder, resizedBlob);
+        }else{
+          state.trackingUnmatched.push({ blob: resizedBlob, previewUrl: URL.createObjectURL(resizedBlob) });
+        }
+      }catch(err){
+        showToast('Could not read a photo: ' + (err && err.message ? err.message : 'try again'));
+      }
+    }
+
+    state.trackingOcrProcessing = false;
+    render();
+    showToast('Finished scanning ' + files.length + ' photo' + (files.length!==1?'s':''));
+  }
+
+  function findOrderIdInText(text){
+    var matches = text.match(/#?\s*(\d{3,5})/g);
+    if(!matches) return null;
+    var candidates = matches.map(function(m){ return m.replace(/[#\s]/g,''); });
+    var validIds = Array.from(new Set(candidates.filter(function(c){
+      return state.orders.some(function(o){ return o.id === c; });
+    })));
+    return validIds.length === 1 ? validIds[0] : null;
+  }
+
+  async function attachTrackingPhoto(ord, blob){
+    var path = ord.id + '/tracking_' + Date.now() + '.jpg';
+    var { error: upErr } = await sb.storage.from('order-photos').upload(path, blob, { contentType: 'image/jpeg' });
+    if(upErr){ showToast('Upload failed: ' + upErr.message); return; }
+    var { data: pub } = sb.storage.from('order-photos').getPublicUrl(path);
+    var { error } = await sb.from('orders').update({ tracking_photo_url: pub.publicUrl }).eq('id', ord.id);
+    if(error){ showToast('Could not save: ' + error.message); return; }
+    ord.tracking_photo_url = pub.publicUrl;
+  }
+
+  async function shareTrackingToWhatsApp(reseller, btn){
+    var orders = state.orders.filter(function(o){ return o.reseller_name === reseller && (o.tracking_photo_url || o.tracking_number) && !o.tracking_shared_at; });
+    if(orders.length === 0) return;
+    var batch = orders.slice(0, 10);
+
+    if(!navigator.share){
+      showToast('Sharing isn\u2019t supported on this browser \u2014 try on your phone');
+      return;
+    }
+
+    var originalText = btn ? btn.textContent : '';
+    if(btn){ btn.disabled = true; btn.textContent = 'Preparing...'; }
+
+    var textLines = ['Tracking updates:'];
+    batch.forEach(function(o){
+      textLines.push('#' + o.id + (o.tracking_number ? ' \u2014 ' + o.tracking_number : ' \u2014 tracking number coming soon'));
+    });
+    var messageText = textLines.join('\n');
+
+    try{
+      var withPhoto = batch.filter(function(o){ return o.tracking_photo_url; });
+      var files = await Promise.all(withPhoto.map(async function(o){
+        var res = await fetch(o.tracking_photo_url);
+        var blob = await res.blob();
+        return new File([blob], 'tracking_' + o.id + '.jpg', { type: 'image/jpeg' });
+      }));
+
+      var shareData = files.length > 0 ? { files: files, text: messageText } : { text: messageText };
+      if(files.length > 0 && navigator.canShare && !navigator.canShare(shareData)){
+        showToast('Your phone can\u2019t share this many at once \u2014 try fewer');
+        if(btn){ btn.disabled = false; btn.textContent = originalText; }
+        return;
+      }
+
+      await navigator.share(shareData);
+      openTrackingShareConfirm(reseller, batch);
+    }catch(err){
+      if(err && err.name === 'AbortError'){
+        // user cancelled the share sheet
+      }else{
+        showToast('Could not prepare photos: ' + (err && err.message ? err.message : 'try again'));
+      }
+    }
+    if(btn){ btn.disabled = false; btn.textContent = originalText; }
+  }
+
+  function openTrackingShareConfirm(reseller, batch){
+    document.getElementById('modalHost').innerHTML =
+      '<div class="modal-overlay"><div class="modal-box">' +
+        '<p style="font-size:14px;margin:0;">Did you send these ' + batch.length + ' tracking photo' + (batch.length!==1?'s':'') + ' to <b>' + esc(reseller) + '</b>?</p>' +
+        '<div class="modal-actions">' +
+          '<button id="trackShareNoBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">No, didn\u2019t send</button>' +
+          '<button id="trackShareYesBtn" style="background:#34a853;color:#06210f;border:none;">Yes, sent</button>' +
+        '</div></div></div>';
+    document.getElementById('trackShareNoBtn').addEventListener('click', closeModal);
+    document.getElementById('trackShareYesBtn').addEventListener('click', async function(){
+      var ids = batch.map(function(o){ return o.id; });
+      var { error } = await sb.from('orders').update({ tracking_shared_at: new Date().toISOString() }).in('id', ids);
+      if(error){ showToast('Could not mark as shared: ' + error.message); closeModal(); return; }
+      batch.forEach(function(o){ o.tracking_shared_at = new Date().toISOString(); });
+      closeModal();
+      showToast('Marked as shared with ' + reseller);
+      render();
+    });
   }
 
   // ===== DRAW / COVER-UP TOOL =====
@@ -962,6 +1294,14 @@
       if(!email || !pw){ state.loginError = 'Enter email and password'; render(); return; }
       login(email, pw);
     });
+    ['loginEmail','loginPassword'].forEach(function(id){
+      document.getElementById(id).addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          document.getElementById('loginBtn').click();
+        }
+      });
+    });
   }
 
   // ===== BOOK TAB =====
@@ -1054,11 +1394,33 @@
         var idx = parseInt(inp.getAttribute('data-idx'), 10);
         if(state.bookPhotos[idx]) state.bookPhotos[idx].shopVal = inp.value;
       });
+      inp.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          tryAutocomplete(inp, state.shops);
+          var idx = inp.getAttribute('data-idx');
+          if(state.bookPhotos[idx]) state.bookPhotos[idx].shopVal = inp.value;
+          var sizeField = document.querySelector('.photoSizeInput[data-idx="' + idx + '"]');
+          if(sizeField) sizeField.focus();
+        }
+      });
     });
     document.querySelectorAll('.photoSizeInput').forEach(function(inp){
       inp.addEventListener('input', function(){
         var idx = parseInt(inp.getAttribute('data-idx'), 10);
         if(state.bookPhotos[idx]) state.bookPhotos[idx].sizeVal = inp.value;
+      });
+      inp.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          var idx = parseInt(inp.getAttribute('data-idx'), 10);
+          var nextShop = document.querySelector('.photoShopInput[data-idx="' + (idx+1) + '"]');
+          if(nextShop){ nextShop.focus(); }
+          else{
+            var nameField = document.getElementById('nameInput');
+            if(nameField) nameField.focus();
+          }
+        }
       });
     });
     var nameInput = document.getElementById('nameInput');
@@ -1067,6 +1429,22 @@
     if(nameInput) nameInput.addEventListener('input', function(){ state.nameVal = nameInput.value; });
     if(courierInput) courierInput.addEventListener('input', function(){ state.courierVal = courierInput.value; });
     if(addressInput) addressInput.addEventListener('input', function(){ state.addressVal = addressInput.value; });
+    if(nameInput) nameInput.addEventListener('keydown', function(e){
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        tryAutocomplete(nameInput, state.resellers);
+        state.nameVal = nameInput.value;
+        if(courierInput) courierInput.focus();
+      }
+    });
+    if(courierInput) courierInput.addEventListener('keydown', function(e){
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        tryAutocomplete(courierInput, state.couriers || []);
+        state.courierVal = courierInput.value;
+        if(addressInput) addressInput.focus();
+      }
+    });
 
     var saveBtn = document.getElementById('saveOrderBtn');
     saveBtn && saveBtn.addEventListener('click', async function(){
@@ -1302,8 +1680,10 @@
   function renderShopsTab(){
     var mode = state.shopBookingView || 'need';
     var byShop = getShopSummary(mode);
-    var shopKeys = Object.keys(byShop).sort();
+    var query = (state.shopBookingQuery || '').trim().toLowerCase();
     var html = '';
+
+    html += '<input class="searchbar" type="text" id="shopBookingSearch" autocomplete="off" placeholder="Search shop, order id, or reseller" value="' + esc(state.shopBookingQuery || '') + '">';
 
     html += '<div class="filters">';
     html += '<div class="filter-chip' + (mode==='need'?' active':'') + '" data-view="need">Need to book</div>';
@@ -1319,8 +1699,23 @@
       html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">Full record of everything ever tagged to a shop \u2014 including shipped and cancelled.</p>';
     }
 
+    if(query){
+      var filtered = {};
+      Object.keys(byShop).forEach(function(shop){
+        var matchingEntries = byShop[shop].filter(function(entry){
+          var pieceId = (entry.order.id + '-' + (entry.itemIndex+1)).toLowerCase();
+          var hay = (shop + ' ' + pieceId + ' ' + entry.order.id + ' ' + entry.order.reseller_name).toLowerCase();
+          return hay.indexOf(query) !== -1;
+        });
+        if(matchingEntries.length > 0) filtered[shop] = matchingEntries;
+      });
+      byShop = filtered;
+    }
+
+    var shopKeys = Object.keys(byShop).sort();
+
     if(shopKeys.length === 0){
-      html += '<div class="empty-state">Nothing here right now.</div>';
+      html += '<div class="empty-state">' + (query ? 'No matches for that search.' : 'Nothing here right now.') + '</div>';
       return html;
     }
 
@@ -1334,7 +1729,7 @@
       html += '<span class="shop-row-name">' + esc(shop) + '</span>';
       html += '<span class="shop-row-count">' + entries.length + ' piece' + (entries.length!==1?'s':'') + '</span>';
       if(mode === 'need'){
-        html += '<button class="btn-secondary shop-share-btn" data-shop="' + esc(shop) + '">Share to WhatsApp</button>';
+        html += '<button class="btn-whatsapp shop-share-btn" data-shop="' + esc(shop) + '">Share to WhatsApp</button>';
       }
       html += '</div>';
       html += '<div class="shop-row-tray">';
@@ -1356,6 +1751,16 @@
   }
 
   function wireShopsTab(){
+    var searchInput = document.getElementById('shopBookingSearch');
+    if(searchInput){
+      searchInput.addEventListener('input', function(){
+        state.shopBookingQuery = searchInput.value;
+        document.getElementById('tabContent').innerHTML = renderShopsTab();
+        wireShopsTab();
+        var refocused = document.getElementById('shopBookingSearch');
+        if(refocused){ refocused.focus(); refocused.setSelectionRange(refocused.value.length, refocused.value.length); }
+      });
+    }
     document.querySelectorAll('[data-view]').forEach(function(chip){
       chip.addEventListener('click', function(){
         state.shopBookingView = chip.getAttribute('data-view');
@@ -1450,12 +1855,13 @@
     var pendingCount = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; }).length;
 
     var shellHtml = '<div class="app-brand">GURUKRUPA</div>';
-    shellHtml += '<div class="user-bar"><span>Signed in: ' + esc(currentUserLabel()) + '</span><span><button id="manageListsBtn" style="margin-right:14px;">Manage Lists</button><button id="logoutBtn">Sign out</button></span></div>';
+    shellHtml += '<div class="user-bar"><span>Signed in: ' + esc(currentUserLabel()) + '</span><div class="user-bar-actions"><button id="manageListsBtn">Manage Lists</button><button id="logoutBtn">Sign out</button></div></div>';
     shellHtml += '<div class="tabs no-print">';
-    shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook">Book</div>';
-    shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders">Orders' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
-    shellHtml += '<div class="tab-btn' + (state.tab==='ship'?' active':'') + '" id="tabBtnShip">Ship Album</div>';
-    shellHtml += '<div class="tab-btn' + (state.tab==='shops'?' active':'') + '" id="tabBtnShops">Shop Booking</div>';
+    shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook"><span class="tab-icon">\ud83d\udcf8</span>Book Orders</div>';
+    shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders"><span class="tab-icon">\ud83d\udccb</span>Orders List' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
+    shellHtml += '<div class="tab-btn' + (state.tab==='ship'?' active':'') + '" id="tabBtnShip"><span class="tab-icon">\ud83d\udce6</span>Ship Album</div>';
+    shellHtml += '<div class="tab-btn' + (state.tab==='shops'?' active':'') + '" id="tabBtnShops"><span class="tab-icon">\ud83c\udfea</span>Shop Booking</div>';
+    shellHtml += '<div class="tab-btn' + (state.tab==='tracking'?' active':'') + '" id="tabBtnTracking"><span class="tab-icon">\ud83d\udccd</span>Tracking</div>';
     shellHtml += '</div><div id="tabContent"></div>';
 
     appEl.innerHTML = shellHtml;
@@ -1465,12 +1871,14 @@
     document.getElementById('tabBtnOrders').addEventListener('click', function(){ state.tab='orders'; render(); });
     document.getElementById('tabBtnShip').addEventListener('click', function(){ state.tab='ship'; render(); });
     document.getElementById('tabBtnShops').addEventListener('click', function(){ state.tab='shops'; render(); });
+    document.getElementById('tabBtnTracking').addEventListener('click', function(){ state.tab='tracking'; render(); });
 
     var content = document.getElementById('tabContent');
     if(state.tab === 'book'){ content.innerHTML = renderBookTab(); wireBookTab(); }
     else if(state.tab === 'orders'){ content.innerHTML = renderOrdersTab(); wireOrdersTab(); }
     else if(state.tab === 'ship'){ content.innerHTML = renderShipTab(); wireShipTab(); }
     else if(state.tab === 'shops'){ content.innerHTML = renderShopsTab(); wireShopsTab(); }
+    else if(state.tab === 'tracking'){ content.innerHTML = renderTrackingTab(); wireTrackingTab(); }
   }
 
   initAuth();
