@@ -2,126 +2,221 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Order Management</title>
+<title>Gurukrupa Sarees</title>
 <style>
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #f5f3ef;
-    color: #211c16;
+    background: #131314;
+    color: #e8eaed;
   }
   #app { max-width: 480px; margin: 0 auto; padding: 16px 14px 60px; }
-  .tabs { display: flex; gap: 6px; margin-bottom: 18px; position: sticky; top: 0; background: #f5f3ef; padding: 10px 0; z-index: 5; }
+  @media (min-width: 700px) {
+    #app { max-width: 96%; padding: 24px 24px 60px; }
+    .photo-grid { column-count: 8; }
+    .order-photos { column-count: 8; }
+    .album-grid { grid-template-columns: repeat(10,1fr); }
+  }
+  @media (min-width: 1200px) {
+    #app { max-width: 1400px; }
+    .photo-grid { column-count: 10; }
+    .order-photos { column-count: 10; }
+    .album-grid { grid-template-columns: repeat(12,1fr); }
+  }
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; position: sticky; top: 0; background: #131314; padding: 10px 0; z-index: 5; }
   .tab-btn {
-    flex: 1; padding: 10px 4px; border-radius: 10px; border: 1px solid #e4ddd2;
-    background: #fff; color: #7a7166; font-size: 11px; font-weight: 600; cursor: pointer;
+    flex: 1; padding: 10px 4px; border-radius: 10px; border: 1px solid #3c4043;
+    background: #202124; color: #9aa0a6; font-size: 11px; font-weight: 600; cursor: pointer;
     position: relative;
   }
-  .tab-btn.active { border-color: #b5652e; background: #fbeadb; color: #a14f19; }
+  .tab-btn.active { border-color: #d97a3f; background: rgba(217,122,63,0.18); color: #f2a76a; }
   .badge {
-    position: absolute; top: -4px; right: 10px; background: #d43b3b; color: white;
+    position: absolute; top: -4px; right: 10px; background: #e05c5c; color: white;
     font-size: 10px; font-weight: 700; border-radius: 10px; padding: 1px 6px; min-width: 16px; text-align: center;
   }
-  label { font-size: 13px; color: #6b6459; display: block; margin-bottom: 5px; font-weight: 500; }
+  label { font-size: 13px; color: #9aa0a6; display: block; margin-bottom: 5px; font-weight: 500; }
   input[type=text], input[type=email], input[type=password], textarea {
-    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #e4ddd2;
-    font-size: 14px; font-family: inherit; background: #fff; color: #211c16;
+    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #3c4043;
+    font-size: 14px; font-family: inherit; background: #28292c; color: #e8eaed;
   }
+  input::placeholder, textarea::placeholder { color: #80868b; }
   textarea { resize: vertical; }
   .field { margin-bottom: 14px; }
-  .field-hint { font-size: 11.5px; color: #9a9084; margin-top: 4px; }
-  .photo-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; margin-bottom: 8px; }
-  .photo-thumb { position: relative; }
-  .photo-thumb img { width: 100%; height: 150px; object-fit: contain; border-radius: 10px; border: 1px solid #e4ddd2; background: #efe9df; }
-  .photo-remove { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; border-radius: 50%; background: #d43b3b; color: white; border: none; font-size: 13px; cursor: pointer; line-height: 1; }
-  .photo-add { height: 150px; border-radius: 10px; border: 1.5px dashed #cabfae; background: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #8a7f74; font-size: 12px; text-align: center; }
-  .btn-primary { width: 100%; padding: 13px; border-radius: 10px; border: none; background: #b5652e; color: white; font-size: 14px; font-weight: 600; cursor: pointer; }
-  .btn-primary:disabled { opacity: 0.6; }
-  .btn-secondary { padding: 9px 14px; border-radius: 10px; border: 1px solid #e4ddd2; background: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer; color: #6b6459; }
-  .error-text { color: #d43b3b; font-size: 13px; margin-bottom: 10px; word-break: break-word; }
-  .searchbar { width: 100%; padding: 10px 14px; border-radius: 20px; border: 1px solid #e4ddd2; font-size: 13px; margin-bottom: 10px; background: #fff; }
+  .field-hint { font-size: 11.5px; color: #80868b; margin-top: 4px; }
+
+  .photo-grid { column-count: 6; column-gap: 6px; margin-bottom: 12px; }
+  .photo-thumb { position: relative; border-radius: 8px; overflow: hidden; break-inside: avoid; margin-bottom: 6px; border: 1px solid #3c4043; }
+  .photo-thumb img { width: 100%; height: auto; min-height: 40px; display: block; }
+  .photo-remove { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%; background: #e05c5c; color: white; border: none; font-size: 13px; cursor: pointer; line-height: 1; z-index: 2; }
+  .photo-cover-btn { position: absolute; bottom: 6px; left: 6px; right: 6px; background: rgba(0,0,0,0.75); color: #fff; border: none; border-radius: 6px; padding: 5px 0; font-size: 11px; font-weight: 600; cursor: pointer; z-index: 2; }
+  .btn-add-photo {
+    width: 100%; padding: 14px; border-radius: 10px; border: 1.5px dashed #5f6368; background: #202124;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; color: #9aa0a6;
+    font-size: 14px; font-weight: 500; margin-bottom: 16px;
+  }
+  .photo-shop-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+  .photo-shop-row { display: flex; gap: 10px; align-items: center; background: #202124; border: 1px solid #3c4043; border-radius: 10px; padding: 8px; }
+  .photo-shop-row img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
+  .photo-shop-row-fields { flex: 1; min-width: 0; }
+  .photo-shop-row-fields label { margin-bottom: 3px; font-size: 12px; }
+  .photo-shop-row-fields input { padding: 8px 10px; font-size: 13px; }
+
+  .btn-primary { width: 100%; padding: 13px; border-radius: 10px; border: none; background: #d97a3f; color: #1a1207; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .btn-primary:disabled { opacity: 0.5; }
+  .btn-secondary { padding: 9px 14px; border-radius: 10px; border: 1px solid #3c4043; background: #202124; font-size: 12.5px; font-weight: 600; cursor: pointer; color: #9aa0a6; }
+  .error-text { color: #f28b82; font-size: 13px; margin-bottom: 10px; word-break: break-word; }
+  .searchbar { width: 100%; padding: 10px 14px; border-radius: 20px; border: 1px solid #3c4043; font-size: 13px; margin-bottom: 10px; background: #28292c; color: #e8eaed; }
   .filters { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
-  .filter-chip { padding: 6px 14px; border-radius: 20px; font-size: 12.5px; cursor: pointer; border: 1px solid #e4ddd2; background: #fff; color: #6b6459; display: inline-block; }
-  .filter-chip.active { background: #b5652e; color: #fff; border-color: #b5652e; }
-  .empty-state { text-align: center; padding: 50px 16px; color: #9a9084; font-size: 14px; }
-  .order-card { background: #fff; border: 1px solid #e4ddd2; border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+  .filter-chip { padding: 6px 14px; border-radius: 20px; font-size: 12.5px; cursor: pointer; border: 1px solid #3c4043; background: #202124; color: #9aa0a6; display: inline-block; }
+  .filter-chip.active { background: #d97a3f; color: #1a1207; border-color: #d97a3f; font-weight: 600; }
+  .empty-state { text-align: center; padding: 50px 16px; color: #80868b; font-size: 14px; }
+  .order-card { background: #202124; border: 1px solid #3c4043; border-radius: 14px; padding: 12px; margin-bottom: 12px; }
   .order-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-  .order-id { font-family: monospace; font-size: 13px; font-weight: 700; background: #f3e3d3; color: #a14f19; padding: 3px 10px; border-radius: 6px; }
+  .order-id { font-family: monospace; font-size: 13px; font-weight: 700; background: rgba(217,122,63,0.2); color: #f2a76a; padding: 3px 10px; border-radius: 6px; }
   .status-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
-  .status-pending { background: #fbeadb; color: #a97a00; }
-  .status-shipped { background: #dcf8e8; color: #0a7a3d; }
-  .status-cancelled { background: #fde2e1; color: #b23a3a; }
-  .status-partial { background: #dbe9fb; color: #1a5fa8; }
-  .booking-time { font-size: 11px; color: #9a9084; margin-bottom: 2px; }
-  .activity-log { font-size: 10.5px; color: #b0a89c; margin-bottom: 8px; }
-  .order-photos { display: grid; grid-template-columns: repeat(2,1fr); gap: 6px; margin-bottom: 8px; }
-  .item-wrap { position: relative; }
-  .item-wrap.shipped-item img { opacity: 0.45; }
-  .item-shipped-tag { position: absolute; top: 4px; left: 4px; background: #2f8f5b; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
-  .order-photos img { width: 100%; height: 130px; object-fit: contain; border-radius: 8px; border: 1px solid #e4ddd2; cursor: zoom-in; background: #efe9df; }
-  .order-name { font-size: 14.5px; font-weight: 600; margin: 0 0 3px; }
-  .order-courier { font-size: 12px; color: #a14f19; background: #fbeadb; display: inline-block; padding: 2px 8px; border-radius: 6px; margin-bottom: 6px; }
-  .order-address { font-size: 12.5px; color: #6b6459; white-space: pre-line; line-height: 1.5; margin: 0 0 10px; }
-  .order-cancel-note { display: block; font-size: 12px; color: #b23a3a; background: #fdeceb; padding: 4px 9px; border-radius: 6px; margin-bottom: 6px; white-space: pre-line; }
+  .status-pending { background: rgba(249,171,0,0.18); color: #fdd663; }
+  .status-shipped { background: rgba(52,168,83,0.18); color: #81c995; }
+  .status-cancelled { background: rgba(242,139,130,0.18); color: #f28b82; }
+  .status-partial { background: rgba(138,180,248,0.18); color: #8ab4f8; }
+  .booking-time { font-size: 11px; color: #80868b; margin-bottom: 2px; }
+  .activity-log { font-size: 10.5px; color: #5f6368; margin-bottom: 8px; }
+
+  .order-photos { column-count: 6; column-gap: 6px; margin-bottom: 8px; }
+  .item-wrap { position: relative; break-inside: avoid; margin-bottom: 6px; }
+  .item-wrap.shipped-item img { opacity: 0.4; }
+  .item-shipped-tag { position: absolute; top: 6px; left: 6px; background: #34a853; color: #06210f; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; z-index: 2; }
+  .order-photos img { width: 100%; height: auto; border-radius: 8px; cursor: zoom-in; display: block; }
+  .order-name { font-size: 14.5px; font-weight: 600; margin: 0 0 3px; color: #e8eaed; }
+  .order-courier { font-size: 12px; color: #f2a76a; background: rgba(217,122,63,0.15); display: inline-block; padding: 2px 8px; border-radius: 6px; margin-bottom: 6px; }
+
+  .piece-id-tag {
+    position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.8); color: #fff;
+    font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 8px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; z-index: 2;
+  }
+  .shop-name-tag {
+    position: absolute; bottom: 6px; left: 6px; background: rgba(0,0,0,0.8); color: #fff;
+    font-size: 10px; font-weight: 600; padding: 3px 9px; border-radius: 8px; z-index: 2; max-width: 65%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .order-address { font-size: 12.5px; color: #9aa0a6; white-space: pre-line; line-height: 1.5; margin: 0 0 10px; }
+  .order-cancel-note { display: block; font-size: 12px; color: #f28b82; background: rgba(242,139,130,0.12); padding: 4px 9px; border-radius: 6px; margin-bottom: 6px; white-space: pre-line; }
   .order-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  .btn-ship { flex: 1; padding: 9px; font-size: 13px; font-weight: 600; background: #2f8f5b; color: white; border: none; border-radius: 8px; cursor: pointer; }
-  .btn-unship { flex: 1; padding: 9px; font-size: 13px; background: #fff; border: 1px solid #e4ddd2; border-radius: 8px; cursor: pointer; color: #6b6459; }
-  .btn-cancel { padding: 9px 12px; background: #fff; border: 1px solid #f0c8c8; color: #b23a3a; border-radius: 8px; cursor: pointer; font-size: 13px; }
-  .btn-del { padding: 9px 12px; background: #fff; border: 1px solid #f0c8c8; color: #d43b3b; border-radius: 8px; cursor: pointer; }
-  mark { background: #ffe27a; padding: 0 1px; border-radius: 2px; }
-  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #211c16; color: white; padding: 10px 20px; border-radius: 20px; font-size: 13px; z-index: 50; max-width: 90%; text-align: center; }
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; }
-  .modal-box { background: white; border-radius: 14px; padding: 18px; max-width: 340px; width: 100%; text-align: center; }
+  .btn-ship { flex: 1; padding: 9px; font-size: 13px; font-weight: 600; background: #34a853; color: #06210f; border: none; border-radius: 8px; cursor: pointer; }
+  .btn-unship { flex: 1; padding: 9px; font-size: 13px; background: #28292c; border: 1px solid #3c4043; border-radius: 8px; cursor: pointer; color: #9aa0a6; }
+  .btn-cancel { padding: 9px 12px; background: #28292c; border: 1px solid #5c3a3a; color: #f28b82; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .btn-del { padding: 9px 12px; background: #28292c; border: 1px solid #5c3a3a; color: #f28b82; border-radius: 8px; cursor: pointer; }
+  mark { background: #fdd663; color: #131314; padding: 0 1px; border-radius: 2px; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #3c4043; color: #e8eaed; padding: 10px 20px; border-radius: 20px; font-size: 13px; z-index: 50; max-width: 90%; text-align: center; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; }
+  .modal-box { background: #28292c; border: 1px solid #3c4043; border-radius: 14px; padding: 18px; max-width: 340px; width: 100%; text-align: center; color: #e8eaed; }
+  .draw-modal-box { background: #131314; width: 100%; max-width: 480px; height: 100%; max-height: 100vh; display: flex; flex-direction: column; padding: 0; }
+  .draw-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid #3c4043; }
+  .draw-header h2 { font-size: 15px; margin: 0; color: #e8eaed; }
+  .draw-close-btn { background: none; border: none; color: #9aa0a6; font-size: 22px; cursor: pointer; line-height: 1; padding: 4px; }
+  .draw-canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 8px; touch-action: none; }
+  .draw-canvas-wrap canvas { max-width: 100%; max-height: 100%; border-radius: 6px; touch-action: none; cursor: crosshair; }
+  .draw-controls { padding: 12px 16px; border-top: 1px solid #3c4043; }
+  .draw-colors { display: flex; gap: 10px; margin-bottom: 12px; justify-content: center; }
+  .draw-color-swatch { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #3c4043; cursor: pointer; padding: 0; }
+  .draw-color-swatch.active { border-color: #fff; box-shadow: 0 0 0 2px #d97a3f; }
+  .draw-actions { display: flex; gap: 8px; }
+  .draw-actions button { flex: 1; padding: 11px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; }
+  .btn-draw-undo { background: #3c4043; color: #e8eaed; }
+  .btn-draw-cancel { background: #28292c; color: #f28b82; border: 1px solid #5c3a3a !important; }
+  .btn-draw-done { background: #d97a3f; color: #1a1207; }
   .modal-box textarea { margin-top: 10px; }
   .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
   .modal-actions button { flex: 1; padding: 10px; border-radius: 8px; font-size: 13px; cursor: pointer; }
   .zoom-img { max-width: 100%; max-height: 80vh; border-radius: 10px; }
-  .print-slip { padding: 14px 4px; border-bottom: 1px dashed #cabfae; }
+  .print-slip { padding: 14px 4px; border-bottom: 1px dashed #cabfae; color: #111; }
   .print-slip:last-child { border-bottom: none; }
   .slip-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
   .slip-id { font-family: monospace; font-size: 17px; font-weight: 700; }
-  .slip-size { font-size: 13px; color: #6b6459; }
-  .slip-time { font-size: 11px; color: #9a9084; margin-bottom: 6px; }
+  .slip-size { font-size: 13px; color: #444; }
+  .slip-time { font-size: 11px; color: #666; margin-bottom: 6px; }
   .slip-name { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
   .slip-courier { font-size: 12px; color: #a14f19; margin: 0 0 4px; }
   .slip-address { font-size: 13px; white-space: pre-line; line-height: 1.5; margin: 0; }
   .print-header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
-  .btn-print { padding: 9px 16px; background: #211c16; color: white; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; }
+  .btn-print { padding: 9px 16px; background: #d97a3f; color: #1a1207; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
   .btn-print:disabled { opacity: 0.5; }
-  .loading-state { text-align: center; padding: 50px 16px; color: #9a9084; font-size: 14px; }
+  .loading-state { text-align: center; padding: 50px 16px; color: #80868b; font-size: 14px; }
   .banner { font-size: 12.5px; padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; }
-  .banner.warn { background: #fff4d6; border: 1px solid #f0dfa8; color: #7a5b00; }
-  .banner.err { background: #fde2e1; border: 1px solid #f0c8c8; color: #b23a3a; }
-  .album-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; margin-bottom: 90px; }
-  .album-cell { position: relative; cursor: pointer; }
-  .album-cell img { width: 100%; height: 150px; object-fit: contain; border-radius: 10px; border: 2px solid #e4ddd2; background: #efe9df; display: block; }
-  .album-cell.selected img { border-color: #b5652e; box-shadow: 0 0 0 2px #fbeadb; }
-  .album-check { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.9); border: 2px solid #cabfae; display: flex; align-items: center; justify-content: center; font-size: 13px; color: transparent; }
-  .album-cell.selected .album-check { background: #b5652e; border-color: #b5652e; color: #fff; }
-  .album-caption { font-size: 11px; color: #6b6459; padding: 4px 2px 0; line-height: 1.4; }
-  .album-caption b { color: #211c16; }
-  .ship-bar { position: fixed; left: 0; right: 0; bottom: 0; background: #211c16; color: #fff; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; z-index: 40; max-width: 480px; margin: 0 auto; }
+  .shop-row { margin-bottom: 22px; border-bottom: 1px solid #3c4043; padding-bottom: 18px; }
+  .shop-row-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .shop-row-name { font-size: 16px; font-weight: 800; color: #e8eaed; }
+  .shop-row-count { font-size: 12px; color: #80868b; }
+  .shop-share-btn { margin-left: auto; font-size: 12px; padding: 6px 12px; }
+  .shop-row-tray { display: flex; flex-wrap: wrap; gap: 8px; }
+  .shop-tray-item { position: relative; width: 110px; border-radius: 8px; overflow: hidden; background: #202124; }
+  .shop-tray-item img { width: 100%; height: 140px; object-fit: cover; display: block; cursor: zoom-in; }
+  .shop-tray-caption { font-size: 10px; color: #9aa0a6; padding: 4px 5px; line-height: 1.3; }
+  .banner.warn { background: rgba(253,214,99,0.12); border: 1px solid rgba(253,214,99,0.3); color: #fdd663; }
+  .banner.err { background: rgba(242,139,130,0.12); border: 1px solid rgba(242,139,130,0.3); color: #f28b82; }
+
+  .album-grid { display: grid; grid-template-columns: repeat(6,1fr); gap: 4px; margin-bottom: 90px; }
+  .album-cell { position: relative; cursor: pointer; aspect-ratio: 3/4; border-radius: 8px; overflow: hidden; background: #202124; }
+  .album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.12s, border-radius 0.12s; }
+  .album-cell.selected img { transform: scale(0.9); border-radius: 14px; opacity: 0.4; }
+  .album-check {
+    position: absolute; top: 6px; left: 6px; width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(255,255,255,0.25); border: 1.5px solid #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; color: transparent; z-index: 2; opacity: 0; transition: opacity 0.12s;
+  }
+  .album-cell.selected .album-check { background: #8ab4f8; border-color: #8ab4f8; color: #131314; opacity: 1; }
+  @media (hover: hover) {
+    .album-cell:hover .album-check { opacity: 1; }
+  }
+  @media (hover: none) {
+    .album-check { opacity: 0.9; }
+  }
+  .album-zoom-btn {
+    position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%;
+    background: transparent; border: none; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; z-index: 3; padding: 0; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.9));
+    opacity: 0; transition: opacity 0.12s;
+  }
+  .album-zoom-btn svg { width: 18px; height: 18px; }
+  @media (hover: hover) {
+    .album-cell:hover .album-zoom-btn { opacity: 1; }
+  }
+  @media (hover: none) {
+    .album-zoom-btn { opacity: 0.9; width: 30px; height: 30px; }
+    .album-zoom-btn svg { width: 20px; height: 20px; }
+  }
+  .ship-bar { position: fixed; left: 0; right: 0; bottom: 0; background: #28292c; border-top: 1px solid #3c4043; color: #e8eaed; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; z-index: 40; max-width: 480px; margin: 0 auto; }
   .ship-bar span { font-size: 13px; }
   .ship-bar-actions { display: flex; gap: 8px; }
   .ship-bar button { padding: 9px 14px; border-radius: 8px; font-size: 12.5px; cursor: pointer; border: none; }
-  .btn-clear-sel { background: #3a332b; color: #d9d2c8; }
-  .btn-ship-print { background: #b5652e; color: #fff; font-weight: 600; }
+  .btn-clear-sel { background: #3c4043; color: #e8eaed; }
+  .btn-ship-print { background: #d97a3f; color: #1a1207; font-weight: 700; }
   #shipPrintArea { display: none; }
-  .login-wrap { max-width: 340px; margin: 60px auto; padding: 0 16px; }
-  .login-box { background: #fff; border: 1px solid #e4ddd2; border-radius: 16px; padding: 24px; }
-  .login-box h1 { font-size: 18px; margin: 0 0 4px; }
-  .login-box p { font-size: 13px; color: #6b6459; margin: 0 0 20px; }
-  .user-bar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #9a9084; margin-bottom: 10px; }
-  .user-bar button { background: none; border: none; color: #b5652e; font-size: 12px; cursor: pointer; text-decoration: underline; padding: 0; }
+
+  .login-wrap { max-width: 420px; margin: 40px auto; padding: 0 16px; }
+  .login-box { background: #202124; border: 1px solid #3c4043; border-radius: 20px; padding: 40px 36px; }
+  .login-box h1 { font-size: 26px; margin: 0 0 8px; color: #e8eaed; }
+  .login-box p { font-size: 15px; color: #9aa0a6; margin: 0 0 28px; }
+  .login-box .field { margin-bottom: 20px; }
+  .login-box label { font-size: 15px; margin-bottom: 8px; }
+  .login-box input { padding: 14px 16px; font-size: 16px; border-radius: 12px; }
+  .login-box .btn-primary { padding: 16px; font-size: 16px; border-radius: 12px; margin-top: 8px; }
+
+  .app-brand {
+    font-size: 32px; font-weight: 900; letter-spacing: 1px; text-align: center; color: #e8eaed;
+    margin: 8px 0 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  }
+  .user-bar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #80868b; margin-bottom: 10px; }
+  .user-bar button { background: none; border: none; color: #f2a76a; font-size: 12px; cursor: pointer; text-decoration: underline; padding: 0; }
   @media print {
     .no-print { display: none !important; }
     body * { visibility: hidden; }
     #print-area, #print-area * { visibility: visible; }
-    #print-area { position: absolute; left: 0; top: 0; width: 100%; }
+    #print-area { position: absolute; left: 0; top: 0; width: 100%; color: #111; }
     #shipPrintArea { display: block !important; }
     #shipPrintArea, #shipPrintArea * { visibility: visible; }
-    #shipPrintArea { position: absolute; left: 0; top: 0; width: 100%; }
+    #shipPrintArea { position: absolute; left: 0; top: 0; width: 100%; color: #111; }
   }
 </style>
 </head>
@@ -129,9 +224,11 @@
 <div id="app"></div>
 <div id="toastHost"></div>
 <div id="modalHost"></div>
+
 <div id="shipPrintArea"></div>
 <input type="file" id="importFileInput" accept="application/json" style="display:none;">
 <datalist id="resellerList"></datalist>
+<datalist id="shopList"></datalist>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -148,6 +245,7 @@
     session: null,
     orders: [],
     resellers: [],
+    shops: [],
     loading: true,
     tab: 'book',
     filter: 'pending',
@@ -156,6 +254,8 @@
     processing: false,
     saving: false,
     shipSelection: {},
+    selectedShop: null,
+    shopBookingView: 'need',
     loginError: ''
   };
 
@@ -219,6 +319,72 @@
         img.src = e.target.result;
       };
       reader.readAsDataURL(file);
+    });
+  }
+
+  function drawWatermarkedBlob(sourceBlob, pieceId, sizeVal){
+    return new Promise(function(resolve, reject){
+      var img = new Image();
+      var objUrl = URL.createObjectURL(sourceBlob);
+      img.onerror = function(){ URL.revokeObjectURL(objUrl); reject(new Error('Could not load photo to stamp order ID')); };
+      img.onload = function(){
+        URL.revokeObjectURL(objUrl);
+        var canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        var lines = ['#' + pieceId];
+        var trimmedSize = (sizeVal || '').trim();
+        if(trimmedSize) lines.push(trimmedSize);
+
+        var fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
+        var fontSize = Math.max(20, Math.round(canvas.width * 0.065));
+        ctx.font = '800 ' + fontSize + 'px ' + fontFamily;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        var lineHeight = fontSize * 1.25;
+        var padX = fontSize * 0.6;
+        var padY = fontSize * 0.4;
+
+        var maxTextWidth = 0;
+        lines.forEach(function(line){
+          var w = ctx.measureText(line).width;
+          if(w > maxTextWidth) maxTextWidth = w;
+        });
+
+        var boxWidth = maxTextWidth + padX * 2;
+        var boxHeight = (lines.length * lineHeight) + padY * 2;
+        var centerX = canvas.width / 2;
+        var centerY = canvas.height / 2;
+        var boxX = centerX - boxWidth / 2;
+        var boxY = centerY - boxHeight / 2;
+        var radius = fontSize * 0.28;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(boxX + radius, boxY);
+        ctx.arcTo(boxX + boxWidth, boxY, boxX + boxWidth, boxY + boxHeight, radius);
+        ctx.arcTo(boxX + boxWidth, boxY + boxHeight, boxX, boxY + boxHeight, radius);
+        ctx.arcTo(boxX, boxY + boxHeight, boxX, boxY, radius);
+        ctx.arcTo(boxX, boxY, boxX + boxWidth, boxY, radius);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#000000';
+        lines.forEach(function(line, i){
+          var y = boxY + padY + (i + 0.5) * lineHeight;
+          ctx.fillText(line, centerX, y);
+        });
+
+        canvas.toBlob(function(outBlob){
+          if(!outBlob){ reject(new Error('Could not finalize stamped photo')); return; }
+          resolve(outBlob);
+        }, 'image/jpeg', 0.85);
+      };
+      img.src = objUrl;
     });
   }
 
@@ -291,6 +457,10 @@
       state.orders.forEach(function(o){ if(o.reseller_name) names[o.reseller_name.toLowerCase()] = o.reseller_name; });
       state.resellers = Object.values(names).sort();
 
+      var shopNames = {};
+      (items||[]).forEach(function(it){ if(it.shop_name) shopNames[it.shop_name.toLowerCase()] = it.shop_name; });
+      state.shops = Object.values(shopNames).sort();
+
     }catch(e){
       showToast('Could not load orders: ' + (e && e.message ? e.message : 'unknown error'));
     }
@@ -315,33 +485,41 @@
 
   // ===== BOOKING =====
 
-  async function saveOrder(name, size, courier, address, photoBlobs){
+  async function saveOrder(name, courier, address, photoEntries){
     var { data: idData, error: idErr } = await sb.rpc('get_next_order_id');
     if(idErr) throw new Error('Could not get order number: ' + idErr.message);
     var orderId = idData;
 
-    var uploadedUrls = [];
-    for(var i=0;i<photoBlobs.length;i++){
-      var path = orderId + '/' + Date.now() + '_' + i + '.jpg';
-      var { error: upErr } = await sb.storage.from('order-photos').upload(path, photoBlobs[i], { contentType: 'image/jpeg' });
-      if(upErr) throw new Error('Photo ' + (i+1) + ' upload failed: ' + upErr.message);
-      var { data: pub } = sb.storage.from('order-photos').getPublicUrl(path);
-      uploadedUrls.push(pub.publicUrl);
-    }
-
-    var { error: orderErr } = await sb.from('orders').insert({
+    var orderInsertPromise = sb.from('orders').insert({
       id: orderId,
       reseller_name: name,
-      size: size,
       courier: courier,
       address: address,
       status: 'pending',
       created_by: state.session.user.id
     });
-    if(orderErr) throw new Error('Order save failed: ' + orderErr.message);
+
+    var uploadPromises = photoEntries.map(async function(entry, i){
+      var pieceId = orderId + '-' + (i + 1);
+      var stampedBlob = await drawWatermarkedBlob(entry.blob, pieceId, entry.sizeVal);
+      var path = orderId + '/' + Date.now() + '_' + i + '.jpg';
+      var { error: upErr } = await sb.storage.from('order-photos').upload(path, stampedBlob, { contentType: 'image/jpeg' });
+      if(upErr) throw new Error('Photo ' + (i+1) + ' upload failed: ' + upErr.message);
+      var { data: pub } = sb.storage.from('order-photos').getPublicUrl(path);
+      return pub.publicUrl;
+    });
+
+    var results = await Promise.all([orderInsertPromise].concat(uploadPromises));
+    var orderResult = results[0];
+    if(orderResult.error) throw new Error('Order save failed: ' + orderResult.error.message);
+    var uploadedUrls = results.slice(1);
 
     var itemRows = uploadedUrls.map(function(url, idx){
-      return { order_id: orderId, item_index: idx, photo_url: url, status: 'pending' };
+      return {
+        order_id: orderId, item_index: idx, photo_url: url, status: 'pending',
+        shop_name: (photoEntries[idx].shopVal || '').trim() || null,
+        size: (photoEntries[idx].sizeVal || '').trim() || null
+      };
     });
     var { error: itemsErr } = await sb.from('order_items').insert(itemRows);
     if(itemsErr) throw new Error('Photo records failed: ' + itemsErr.message);
@@ -359,19 +537,27 @@
     var { error } = await sb.from('order_items').update(patch).eq('order_id', orderId);
     if(error){ showToast('Update failed: ' + error.message); return; }
 
-    if(ord.status === 'cancelled'){
+    var wasCancelled = ord.status === 'cancelled';
+    if(wasCancelled){
       await sb.from('orders').update({ status: 'pending' }).eq('id', orderId);
+      ord.status = 'pending';
     }
+    (ord.items||[]).forEach(function(it){
+      it.status = status;
+      it.shipped_at = patch.shipped_at;
+      it.shipped_by = patch.shipped_by;
+    });
     showToast(status === 'shipped' ? 'All pieces marked shipped' : 'All pieces marked pending');
-    await loadOrders();
+    render();
   }
 
   async function deleteOrder(id){
     var { error } = await sb.from('orders').delete().eq('id', id);
     if(error){ showToast('Delete failed: ' + error.message); return; }
+    state.orders = state.orders.filter(function(o){ return o.id !== id; });
     showToast('Order deleted');
     closeModal();
-    await loadOrders();
+    render();
   }
 
   async function cancelOrder(id, reason){
@@ -382,9 +568,15 @@
       cancelled_by: state.session.user.id
     }).eq('id', id);
     if(error){ showToast('Cancel failed: ' + error.message); return; }
+    var ord = state.orders.find(function(o){ return o.id === id; });
+    if(ord){
+      ord.status = 'cancelled';
+      ord.cancel_reason = reason;
+      ord.cancelled_at = new Date().toISOString();
+    }
     showToast('Order cancelled');
     closeModal();
-    await loadOrders();
+    render();
   }
 
   async function printAndMarkShipped(){
@@ -407,17 +599,30 @@
       }).in('id', dbIds);
       if(error){ showToast('Could not mark shipped: ' + error.message); return; }
 
+      (ord.items||[]).forEach(function(it){
+        if(dbIds.indexOf(it.id) !== -1){
+          it.status = 'shipped';
+          it.shipped_at = new Date().toISOString();
+          it.shipped_by = state.session.user.id;
+        }
+      });
+
       var prog = orderProgress(ord);
       var shippingNow = dbIds.length;
+      var shippedShopNames = {};
+      (ord.items||[]).forEach(function(it){
+        if(dbIds.indexOf(it.id) !== -1 && it.shop_name){ shippedShopNames[it.shop_name.toLowerCase()] = it.shop_name; }
+      });
+      var shopList = Object.values(shippedShopNames);
       slipsHtml += '<div class="print-slip">';
       slipsHtml += '<div class="slip-top"><span class="slip-id">Order #' + esc(ord.id) + '</span>';
-      if(ord.size) slipsHtml += '<span class="slip-size">Size: ' + esc(ord.size) + '</span>';
       slipsHtml += '</div>';
       slipsHtml += '<div class="slip-time">Booked: ' + formatTime(ord.created_at) + '</div>';
       if(prog.total > 1){
         slipsHtml += '<div class="slip-time">Shipping ' + shippingNow + ' of ' + prog.total + ' piece(s) in this order</div>';
       }
       slipsHtml += '<p class="slip-name">' + esc(ord.reseller_name) + '</p>';
+      if(shopList.length > 0) slipsHtml += '<p class="slip-courier">Shop' + (shopList.length>1?'s':'') + ': ' + esc(shopList.join(', ')) + '</p>';
       if(ord.courier) slipsHtml += '<p class="slip-courier">Courier: ' + esc(ord.courier) + '</p>';
       slipsHtml += '<p class="slip-address">' + esc(ord.address) + '</p>';
       slipsHtml += '</div>';
@@ -427,7 +632,7 @@
     window.print();
     state.shipSelection = {};
     showToast('Marked shipped and sent to print');
-    await loadOrders();
+    render();
   }
 
   // ===== MODALS =====
@@ -470,12 +675,136 @@
     });
   }
 
+  // ===== DRAW / COVER-UP TOOL =====
+
+  var DRAW_COLORS = ['#3fa9f5', '#000000', '#ffffff', '#e05c5c', '#34a853', '#fdd663'];
+
+  function openDrawTool(photoIdx){
+    var photo = state.bookPhotos[photoIdx];
+    if(!photo) return;
+
+    document.getElementById('modalHost').innerHTML =
+      '<div class="modal-overlay" style="padding:0;">' +
+        '<div class="draw-modal-box">' +
+          '<div class="draw-header"><h2>Cover unwanted text</h2><button class="draw-close-btn" id="drawCloseBtn">\u00d7</button></div>' +
+          '<div class="draw-canvas-wrap"><canvas id="drawCanvas"></canvas></div>' +
+          '<div class="draw-controls">' +
+            '<div class="draw-colors" id="drawColors"></div>' +
+            '<div class="draw-actions">' +
+              '<button class="btn-draw-undo" id="drawUndoBtn">Undo</button>' +
+              '<button class="btn-draw-cancel" id="drawCancelBtn">Cancel</button>' +
+              '<button class="btn-draw-done" id="drawDoneBtn">Done</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    var colorsHost = document.getElementById('drawColors');
+    var currentColor = DRAW_COLORS[0];
+    DRAW_COLORS.forEach(function(c, i){
+      var sw = document.createElement('button');
+      sw.className = 'draw-color-swatch' + (i===0?' active':'');
+      sw.style.background = c;
+      sw.addEventListener('click', function(){
+        currentColor = c;
+        document.querySelectorAll('.draw-color-swatch').forEach(function(s){ s.classList.remove('active'); });
+        sw.classList.add('active');
+      });
+      colorsHost.appendChild(sw);
+    });
+
+    var canvas = document.getElementById('drawCanvas');
+    var ctx = canvas.getContext('2d');
+    var img = new Image();
+    var strokes = [];
+    var currentStroke = null;
+    var drawing = false;
+
+    function redraw(){
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      strokes.forEach(function(s){ paintStroke(s); });
+    }
+
+    function paintStroke(s){
+      if(s.points.length < 1) return;
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = Math.max(canvas.width, canvas.height) * 0.045;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(s.points[0].x, s.points[0].y);
+      for(var i=1;i<s.points.length;i++){ ctx.lineTo(s.points[i].x, s.points[i].y); }
+      if(s.points.length === 1){ ctx.lineTo(s.points[0].x + 0.1, s.points[0].y + 0.1); }
+      ctx.stroke();
+    }
+
+    function getCanvasPoint(e){
+      var rect = canvas.getBoundingClientRect();
+      var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      var scaleX = canvas.width / rect.width;
+      var scaleY = canvas.height / rect.height;
+      return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+    }
+
+    function startDraw(e){
+      e.preventDefault();
+      drawing = true;
+      currentStroke = { color: currentColor, points: [getCanvasPoint(e)] };
+      strokes.push(currentStroke);
+      paintStroke(currentStroke);
+    }
+    function moveDraw(e){
+      if(!drawing) return;
+      e.preventDefault();
+      currentStroke.points.push(getCanvasPoint(e));
+      redraw();
+    }
+    function endDraw(e){
+      drawing = false;
+      currentStroke = null;
+    }
+
+    img.onload = function(){
+      canvas.width = img.width;
+      canvas.height = img.height;
+      redraw();
+    };
+    img.src = photo.previewUrl;
+
+    canvas.addEventListener('mousedown', startDraw);
+    canvas.addEventListener('mousemove', moveDraw);
+    window.addEventListener('mouseup', endDraw);
+    canvas.addEventListener('touchstart', startDraw, { passive: false });
+    canvas.addEventListener('touchmove', moveDraw, { passive: false });
+    canvas.addEventListener('touchend', endDraw);
+
+    document.getElementById('drawCloseBtn').addEventListener('click', closeModal);
+    document.getElementById('drawCancelBtn').addEventListener('click', closeModal);
+    document.getElementById('drawUndoBtn').addEventListener('click', function(){
+      strokes.pop();
+      redraw();
+    });
+    document.getElementById('drawDoneBtn').addEventListener('click', function(){
+      canvas.toBlob(function(blob){
+        if(!blob){ showToast('Could not save the edit \u2014 try again'); return; }
+        var newUrl = URL.createObjectURL(blob);
+        state.bookPhotos[photoIdx].blob = blob;
+        state.bookPhotos[photoIdx].previewUrl = newUrl;
+        closeModal();
+        render();
+        showToast('Photo updated');
+      }, 'image/jpeg', 0.85);
+    });
+  }
+
   // ===== LOGIN SCREEN =====
 
   function renderLogin(){
     var html = '<div class="login-wrap"><div class="login-box">';
-    html += '<h1>Order Management</h1><p>Sign in with your staff account</p>';
-    html += '<div class="field"><label>Email</label><input type="email" id="loginEmail" placeholder="you@example.com"></div>';
+    html += '<h1>Gurukrupa Sarees</h1><p>Sign in to your account</p>';
+    html += '<div class="field"><label>Email</label><input type="email" id="loginEmail"></div>';
     html += '<div class="field"><label>Password</label><input type="password" id="loginPassword"></div>';
     if(state.loginError){ html += '<div class="error-text">' + esc(state.loginError) + '</div>'; }
     html += '<button class="btn-primary" id="loginBtn">Sign in</button>';
@@ -498,17 +827,37 @@
     var html = '<div>';
     html += '<div class="field"><label>Product photos</label><div class="photo-grid" id="photoGrid">';
     state.bookPhotos.forEach(function(p, i){
-      html += '<div class="photo-thumb"><img src="' + p.previewUrl + '"><button class="photo-remove" data-idx="' + i + '">\u00d7</button></div>';
+      html += '<div class="photo-thumb">';
+      html += '<button class="photo-remove" data-idx="' + i + '">\u00d7</button>';
+      html += '<button class="photo-cover-btn" data-idx="' + i + '">\u270f\ufe0f Cover</button>';
+      html += '<img src="' + p.previewUrl + '" onerror="this.style.background=\'#5c3a3a\';this.style.minHeight=\'80px\';this.alt=\'Photo failed to load \u2014 remove and try again\';">';
+      html += '</div>';
     });
+    html += '</div>';
     if(state.bookPhotos.length < 6){
-      html += '<div class="photo-add" id="addPhotoBtn">' + (state.processing ? 'Processing...' : '+ Add photo') + '</div>';
+      html += '<div class="btn-add-photo" id="addPhotoBtn">' + (state.processing ? 'Processing...' : '+ Add photo (' + state.bookPhotos.length + '/6)') + '</div>';
     }
-    html += '</div><input type="file" id="fileInput" accept="image/*" multiple style="display:none;"></div>';
+    html += '<input type="file" id="fileInput" accept="image/*" multiple style="display:none;"></div>';
 
-    html += '<div class="field"><label>Reseller name</label><input type="text" id="nameInput" list="resellerList" placeholder="e.g. Sakhi Boutique" value="' + esc(state.nameVal||'') + '">';
+    if(state.bookPhotos.length > 0){
+      html += '<div class="field"><label>Shop (source) &amp; size for each piece</label><div class="photo-shop-rows">';
+      state.bookPhotos.forEach(function(p, i){
+        html += '<div class="photo-shop-row">';
+        html += '<img src="' + p.previewUrl + '">';
+        html += '<div class="photo-shop-row-fields">';
+        html += '<label>Photo ' + (i+1) + ' \u2014 Shop</label>';
+        html += '<input type="text" class="photoShopInput" data-idx="' + i + '" list="shopList" value="' + esc(p.shopVal||'') + '" style="margin-bottom:8px;">';
+        html += '<label>Photo ' + (i+1) + ' \u2014 Size (optional)</label>';
+        html += '<input type="text" class="photoSizeInput" data-idx="' + i + '" value="' + esc(p.sizeVal||'') + '">';
+        html += '</div></div>';
+      });
+      html += '</div>';
+      html += '<div class="field-hint">If you enter a size, it will be stamped on the photo below the order ID</div></div>';
+    }
+
+    html += '<div class="field"><label>Reseller name</label><input type="text" id="nameInput" list="resellerList" value="' + esc(state.nameVal||'') + '">';
     html += '<div class="field-hint">Start typing to see saved resellers</div></div>';
-    html += '<div class="field"><label>Size (optional)</label><input type="text" id="sizeInput" placeholder="e.g. M, L, 38" value="' + esc(state.sizeVal||'') + '"></div>';
-    html += '<div class="field"><label>Courier (optional)</label><input type="text" id="courierInput" placeholder="e.g. DTDC, Delhivery" value="' + esc(state.courierVal||'') + '"></div>';
+    html += '<div class="field"><label>Courier (optional)</label><input type="text" id="courierInput" value="' + esc(state.courierVal||'') + '"></div>';
     html += '<div class="field"><label>Full delivery address</label><textarea id="addressInput" rows="5" placeholder="Name, house/flat no, street, city, state, pincode, contact">' + esc(state.addressVal||'') + '</textarea></div>';
     if(state.bookError){ html += '<div class="error-text">' + esc(state.bookError) + '</div>'; }
     html += '<button class="btn-primary" id="saveOrderBtn" ' + (state.saving||state.processing ? 'disabled' : '') + '>' + (state.saving ? 'Saving...' : 'Save order') + '</button>';
@@ -519,6 +868,8 @@
   function wireBookTab(){
     var dl = document.getElementById('resellerList');
     dl.innerHTML = state.resellers.map(function(r){ return '<option value="' + esc(r) + '">'; }).join('');
+    var shopDl = document.getElementById('shopList');
+    shopDl.innerHTML = state.shops.map(function(s){ return '<option value="' + esc(s) + '">'; }).join('');
 
     document.getElementById('addPhotoBtn') && document.getElementById('addPhotoBtn').addEventListener('click', function(){
       document.getElementById('fileInput').click();
@@ -532,7 +883,7 @@
       try{
         var slice = files.slice(0, 6 - state.bookPhotos.length);
         var blobs = await Promise.all(slice.map(function(f){ return resizeImageToBlob(f, 900); }));
-        var withPreview = blobs.map(function(b){ return { blob: b, previewUrl: URL.createObjectURL(b) }; });
+        var withPreview = blobs.map(function(b){ return { blob: b, previewUrl: URL.createObjectURL(b), shopVal: '', sizeVal: '' }; });
         state.bookPhotos = state.bookPhotos.concat(withPreview).slice(0,6);
       }catch(err){
         state.bookError = 'Could not process a photo: ' + (err && err.message ? err.message : 'unknown error');
@@ -547,19 +898,35 @@
         render();
       });
     });
+    document.querySelectorAll('.photo-cover-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var idx = parseInt(btn.getAttribute('data-idx'), 10);
+        openDrawTool(idx);
+      });
+    });
+    document.querySelectorAll('.photoShopInput').forEach(function(inp){
+      inp.addEventListener('input', function(){
+        var idx = parseInt(inp.getAttribute('data-idx'), 10);
+        if(state.bookPhotos[idx]) state.bookPhotos[idx].shopVal = inp.value;
+      });
+    });
+    document.querySelectorAll('.photoSizeInput').forEach(function(inp){
+      inp.addEventListener('input', function(){
+        var idx = parseInt(inp.getAttribute('data-idx'), 10);
+        if(state.bookPhotos[idx]) state.bookPhotos[idx].sizeVal = inp.value;
+      });
+    });
     var nameInput = document.getElementById('nameInput');
-    var sizeInput = document.getElementById('sizeInput');
     var courierInput = document.getElementById('courierInput');
     var addressInput = document.getElementById('addressInput');
-    nameInput.addEventListener('input', function(){ state.nameVal = nameInput.value; });
-    sizeInput.addEventListener('input', function(){ state.sizeVal = sizeInput.value; });
-    courierInput.addEventListener('input', function(){ state.courierVal = courierInput.value; });
-    addressInput.addEventListener('input', function(){ state.addressVal = addressInput.value; });
+    if(nameInput) nameInput.addEventListener('input', function(){ state.nameVal = nameInput.value; });
+    if(courierInput) courierInput.addEventListener('input', function(){ state.courierVal = courierInput.value; });
+    if(addressInput) addressInput.addEventListener('input', function(){ state.addressVal = addressInput.value; });
 
-    document.getElementById('saveOrderBtn').addEventListener('click', async function(){
+    var saveBtn = document.getElementById('saveOrderBtn');
+    saveBtn && saveBtn.addEventListener('click', async function(){
       var name = (state.nameVal || '').trim();
       var address = (state.addressVal || '').trim();
-      var size = (state.sizeVal || '').trim();
       var courier = (state.courierVal || '').trim();
       if(state.bookPhotos.length === 0){ state.bookError = 'Add at least one photo'; render(); return; }
       if(!name){ state.bookError = 'Enter reseller name'; render(); return; }
@@ -568,11 +935,10 @@
       state.saving = true;
       render();
       try{
-        var blobs = state.bookPhotos.map(function(p){ return p.blob; });
-        var orderId = await saveOrder(name, size, courier, address, blobs);
+        var orderId = await saveOrder(name, courier, address, state.bookPhotos);
         showToast('Order #' + orderId + ' saved');
         state.bookPhotos = [];
-        state.nameVal = ''; state.sizeVal = ''; state.courierVal = ''; state.addressVal = '';
+        state.nameVal = ''; state.courierVal = ''; state.addressVal = '';
         state.saving = false;
         state.tab = 'orders';
         await loadOrders();
@@ -590,7 +956,9 @@
     return state.orders.filter(function(o){
       var ds = orderDisplayStatus(o);
       var matchesFilter = state.filter === 'all' ? true : (state.filter === 'pending' ? (ds === 'pending' || ds === 'partial') : ds === state.filter);
-      var hay = (o.reseller_name+' '+(o.size||'')+' '+o.address+' '+o.id+' '+(o.courier||'')+' '+(o.cancel_reason||'')).toLowerCase();
+      var itemShops = (o.items||[]).map(function(it){ return it.shop_name || ''; }).join(' ');
+      var itemSizes = (o.items||[]).map(function(it){ return it.size || ''; }).join(' ');
+      var hay = (o.reseller_name+' '+o.address+' '+o.id+' '+(o.courier||'')+' '+(o.cancel_reason||'')+' '+itemShops+' '+itemSizes).toLowerCase();
       var matchesQuery = state.query.trim() === '' || hay.indexOf(state.query.trim().toLowerCase()) !== -1;
       return matchesFilter && matchesQuery;
     });
@@ -617,16 +985,18 @@
       if(o.cancelled_at) html += ' \u00b7 Cancelled by ' + esc(o.cancelled_by_email || 'staff') + ' ' + formatTime(o.cancelled_at);
       html += '</div>';
       html += '<div class="order-photos">';
-      (o.items||[]).forEach(function(item){
+      (o.items||[]).forEach(function(item, idx){
         var shippedClass = item.status === 'shipped' ? ' shipped-item' : '';
         html += '<div class="item-wrap' + shippedClass + '">';
         if(item.status === 'shipped'){ html += '<span class="item-shipped-tag">Shipped</span>'; }
-        html += '<img data-src="' + item.photo_url + '" class="orderPhoto" src="' + item.photo_url + '">';
+        html += '<img data-src="' + item.photo_url + '" class="orderPhoto" src="' + item.photo_url + '" loading="lazy">';
+        if(item.shop_name){ html += '<span class="shop-name-tag">' + esc(item.shop_name) + '</span>'; }
         html += '</div>';
       });
       html += '</div>';
-      html += '<p class="order-name">' + highlightText(o.reseller_name, q) + (o.size ? ' \u00b7 size ' + highlightText(o.size, q) : '') + '</p>';
-      if(o.courier){ html += '<span class="order-courier">Courier: ' + highlightText(o.courier, q) + '</span><br>'; }
+      html += '<p class="order-name">' + highlightText(o.reseller_name, q) + '</p>';
+      if(o.courier){ html += '<span class="order-courier">Courier: ' + highlightText(o.courier, q) + '</span>'; }
+      html += '<br>';
       if(ds === 'cancelled' && o.cancel_reason){ html += '<span class="order-cancel-note">Cancelled: ' + esc(o.cancel_reason) + '</span>'; }
       html += '<p class="order-address">' + highlightText(o.address, q) + '</p>';
       html += '<div class="order-actions">';
@@ -682,7 +1052,9 @@
 
   function wireOrdersTab(){
     var search = document.getElementById('searchInput');
-    search.addEventListener('input', function(){ state.query = search.value; updateOrdersResults(); });
+    if(search){
+      search.addEventListener('input', function(){ state.query = search.value; updateOrdersResults(); });
+    }
     document.querySelectorAll('.filter-chip').forEach(function(chip){
       chip.addEventListener('click', function(){
         state.filter = chip.getAttribute('data-filter');
@@ -710,18 +1082,20 @@
   function renderShipTab(){
     var pendingItems = getPendingItems();
     var selCount = Object.keys(state.shipSelection).length;
-    var html = '<p style="font-size:13px;color:#6b6459;margin:0 0 12px;">Tap the pieces you\u2019re ready to ship.</p>';
+    var html = '<p style="font-size:13px;color:#9aa0a6;margin:0 0 12px;">Tap the pieces you\u2019re ready to ship.</p>';
     if(pendingItems.length === 0){
       html += '<div class="empty-state">No pending pieces.</div>';
       return html;
     }
-    html += '<div class="album-grid" id="albumGrid">';
+    html += '<div class="album-grid' + (selCount>0?' has-selection':'') + '" id="albumGrid">';
     pendingItems.forEach(function(entry){
       var key = String(entry.item.id);
       var isSel = !!state.shipSelection[key];
       html += '<div class="album-cell' + (isSel?' selected':'') + '" data-key="' + key + '" data-order="' + entry.order.id + '" data-dbid="' + entry.item.id + '">';
-      html += '<img src="' + entry.item.photo_url + '"><div class="album-check">\u2713</div></div>';
-      html += '<div class="album-caption"><b>#' + esc(entry.order.id) + '</b> \u00b7 ' + esc(entry.order.reseller_name) + (entry.order.size ? ' \u00b7 ' + esc(entry.order.size) : '') + '</div>';
+      html += '<img src="' + entry.item.photo_url + '" loading="lazy"><div class="album-check">\u2713</div>';
+      html += '<button class="album-zoom-btn" data-zoom="' + esc(entry.item.photo_url) + '" aria-label="View full size"><svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"></circle><line x1="15.5" y1="15.5" x2="21" y2="21"></line></svg></button>';
+      if(entry.item.shop_name){ html += '<span class="shop-name-tag">' + esc(entry.item.shop_name) + '</span>'; }
+      html += '</div>';
     });
     html += '</div>';
     if(selCount > 0){
@@ -742,6 +1116,12 @@
         wireShipTab();
       });
     });
+    document.querySelectorAll('.album-zoom-btn').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        openZoom(btn.getAttribute('data-zoom'));
+      });
+    });
     document.getElementById('clearSelBtn') && document.getElementById('clearSelBtn').addEventListener('click', function(){
       state.shipSelection = {};
       document.getElementById('tabContent').innerHTML = renderShipTab();
@@ -750,30 +1130,166 @@
     document.getElementById('shipPrintBtn') && document.getElementById('shipPrintBtn').addEventListener('click', printAndMarkShipped);
   }
 
-  // ===== PRINT TAB =====
+  // ===== BY SHOP TAB =====
 
-  function renderPrintTab(){
-    var pending = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; });
-    var html = '<div class="print-header-bar no-print">';
-    html += '<p style="font-size:13px;color:#6b6459;margin:0;">' + pending.length + ' pending order' + (pending.length!==1?'s':'') + ' ready to print</p>';
-    html += '<button class="btn-print" id="printBtn" ' + (pending.length===0?'disabled':'') + '>Print all slips</button></div>';
-    if(pending.length === 0){ html += '<div class="empty-state">No pending orders to print.</div>'; }
-    html += '<div id="print-area">';
-    pending.forEach(function(o){
-      html += '<div class="print-slip"><div class="slip-top"><span class="slip-id">Order #' + esc(o.id) + '</span>';
-      if(o.size) html += '<span class="slip-size">Size: ' + esc(o.size) + '</span>';
-      html += '</div><div class="slip-time">Booked: ' + formatTime(o.created_at) + '</div>';
-      html += '<p class="slip-name">' + esc(o.reseller_name) + '</p>';
-      if(o.courier) html += '<p class="slip-courier">Courier: ' + esc(o.courier) + '</p>';
-      html += '<p class="slip-address">' + esc(o.address) + '</p></div>';
+  function getShopSummary(mode){
+    var byShop = {};
+    state.orders.forEach(function(o){
+      (o.items||[]).forEach(function(item, idx){
+        if(!item.shop_name) return;
+        var include = false;
+        if(mode === 'need'){
+          include = (o.status !== 'cancelled') && !item.shop_booked_at;
+        }else if(mode === 'pending'){
+          include = (o.status !== 'cancelled') && !!item.shop_booked_at && item.status === 'pending';
+        }else{
+          include = true;
+        }
+        if(!include) return;
+        var key = item.shop_name;
+        if(!byShop[key]) byShop[key] = [];
+        byShop[key].push({ order: o, item: item, itemIndex: idx });
+      });
     });
+    return byShop;
+  }
+
+  function renderShopsTab(){
+    var mode = state.shopBookingView || 'need';
+    var byShop = getShopSummary(mode);
+    var shopKeys = Object.keys(byShop).sort();
+    var html = '';
+
+    html += '<div class="filters">';
+    html += '<div class="filter-chip' + (mode==='need'?' active':'') + '" data-view="need">Need to book</div>';
+    html += '<div class="filter-chip' + (mode==='pending'?' active':'') + '" data-view="pending">Pending</div>';
+    html += '<div class="filter-chip' + (mode==='all'?' active':'') + '" data-view="all">All</div>';
     html += '</div>';
+
+    if(mode === 'need'){
+      html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">Pieces still waiting to be forwarded to each shop.</p>';
+    }else if(mode === 'pending'){
+      html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">Already booked with the shop, waiting for them to provide the piece. This clears automatically once the order is shipped.</p>';
+    }else{
+      html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">Full record of everything ever tagged to a shop \u2014 including shipped and cancelled.</p>';
+    }
+
+    if(shopKeys.length === 0){
+      html += '<div class="empty-state">Nothing here right now.</div>';
+      return html;
+    }
+
+    var statusLabel = { pending: 'Pending', shipped: 'Shipped', cancelled: 'Cancelled' };
+    var statusClass = { pending: 'status-pending', shipped: 'status-shipped', cancelled: 'status-cancelled' };
+
+    shopKeys.forEach(function(shop){
+      var entries = byShop[shop];
+      html += '<div class="shop-row">';
+      html += '<div class="shop-row-header">';
+      html += '<span class="shop-row-name">' + esc(shop) + '</span>';
+      html += '<span class="shop-row-count">' + entries.length + ' piece' + (entries.length!==1?'s':'') + '</span>';
+      if(mode === 'need'){
+        html += '<button class="btn-secondary shop-share-btn" data-shop="' + esc(shop) + '">Share to WhatsApp</button>';
+      }
+      html += '</div>';
+      html += '<div class="shop-row-tray">';
+      entries.forEach(function(entry){
+        var pieceId = entry.order.id + '-' + (entry.itemIndex+1);
+        var st = entry.order.status === 'cancelled' ? 'cancelled' : entry.item.status;
+        html += '<div class="shop-tray-item">';
+        html += '<img class="orderPhoto" data-src="' + entry.item.photo_url + '" src="' + entry.item.photo_url + '" loading="lazy">';
+        if(mode === 'all'){
+          html += '<span class="status-pill ' + statusClass[st] + '" style="position:absolute;top:4px;right:4px;font-size:9px;padding:2px 6px;">' + statusLabel[st] + '</span>';
+        }
+        html += '<div class="shop-tray-caption">#' + esc(pieceId) + ' \u00b7 ' + esc(entry.order.reseller_name) + '</div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    });
+
     return html;
   }
 
-  function wirePrintTab(){
-    var btn = document.getElementById('printBtn');
-    btn && btn.addEventListener('click', function(){ window.print(); });
+  function wireShopsTab(){
+    document.querySelectorAll('[data-view]').forEach(function(chip){
+      chip.addEventListener('click', function(){
+        state.shopBookingView = chip.getAttribute('data-view');
+        render();
+      });
+    });
+    document.querySelectorAll('.orderPhoto').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+    document.querySelectorAll('.shop-share-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){ shareShopToWhatsApp(btn.getAttribute('data-shop'), btn); });
+    });
+  }
+
+  async function shareShopToWhatsApp(shopName, btn){
+    var byShop = getShopSummary('need');
+    var entries = byShop[shopName] || [];
+    if(entries.length === 0) return;
+
+    var batch = entries.slice(0, 10);
+
+    if(!navigator.share){
+      showToast('Sharing isn\u2019t supported on this browser \u2014 try on your phone');
+      return;
+    }
+
+    var originalText = btn ? btn.textContent : '';
+    if(btn){ btn.disabled = true; btn.textContent = 'Preparing...'; }
+
+    try{
+      var files = await Promise.all(batch.map(async function(entry){
+        var res = await fetch(entry.item.photo_url);
+        var blob = await res.blob();
+        var pieceId = entry.order.id + '-' + (entry.itemIndex+1);
+        return new File([blob], shopName + '_' + pieceId + '.jpg', { type: 'image/jpeg' });
+      }));
+
+      var shareData = { files: files, text: shopName };
+      if(navigator.canShare && !navigator.canShare(shareData)){
+        showToast('Your phone can\u2019t share this many photos at once \u2014 try fewer');
+        if(btn){ btn.disabled = false; btn.textContent = originalText; }
+        return;
+      }
+
+      await navigator.share(shareData);
+      openShareConfirm(shopName, batch);
+    }catch(err){
+      if(err && err.name === 'AbortError'){
+        // user cancelled the share sheet, nothing to do
+      }else{
+        showToast('Could not prepare photos: ' + (err && err.message ? err.message : 'try again'));
+      }
+    }
+    if(btn){ btn.disabled = false; btn.textContent = originalText; }
+  }
+
+  function openShareConfirm(shopName, batch){
+    document.getElementById('modalHost').innerHTML =
+      '<div class="modal-overlay"><div class="modal-box">' +
+        '<p style="font-size:14px;margin:0;">Did you send these ' + batch.length + ' photo' + (batch.length!==1?'s':'') + ' to <b>' + esc(shopName) + '</b>\u2019s WhatsApp group?</p>' +
+        '<div class="modal-actions">' +
+          '<button id="shareNoBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">No, didn\u2019t send</button>' +
+          '<button id="shareYesBtn" style="background:#34a853;color:#06210f;border:none;">Yes, sent</button>' +
+        '</div></div></div>';
+    document.getElementById('shareNoBtn').addEventListener('click', closeModal);
+    document.getElementById('shareYesBtn').addEventListener('click', async function(){
+      var ids = batch.map(function(entry){ return entry.item.id; });
+      var { error } = await sb.from('order_items').update({
+        shop_booked_at: new Date().toISOString(),
+        shop_booked_by: state.session.user.id
+      }).in('id', ids);
+      if(error){ showToast('Could not mark as booked: ' + error.message); closeModal(); return; }
+      batch.forEach(function(entry){
+        entry.item.shop_booked_at = new Date().toISOString();
+      });
+      closeModal();
+      showToast('Marked as booked with ' + shopName);
+      render();
+    });
   }
 
   // ===== APP SHELL / RENDER =====
@@ -788,12 +1304,13 @@
 
     var pendingCount = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; }).length;
 
-    var shellHtml = '<div class="user-bar"><span>Signed in: ' + esc(currentUserLabel()) + '</span><button id="logoutBtn">Sign out</button></div>';
+    var shellHtml = '<div class="app-brand">GURUKRUPA</div>';
+    shellHtml += '<div class="user-bar"><span>Signed in: ' + esc(currentUserLabel()) + '</span><button id="logoutBtn">Sign out</button></div>';
     shellHtml += '<div class="tabs no-print">';
     shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook">Book</div>';
     shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders">Orders' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
     shellHtml += '<div class="tab-btn' + (state.tab==='ship'?' active':'') + '" id="tabBtnShip">Ship Album</div>';
-    shellHtml += '<div class="tab-btn' + (state.tab==='print'?' active':'') + '" id="tabBtnPrint">Print all</div>';
+    shellHtml += '<div class="tab-btn' + (state.tab==='shops'?' active':'') + '" id="tabBtnShops">Shop Booking</div>';
     shellHtml += '</div><div id="tabContent"></div>';
 
     appEl.innerHTML = shellHtml;
@@ -801,13 +1318,13 @@
     document.getElementById('tabBtnBook').addEventListener('click', function(){ state.tab='book'; render(); });
     document.getElementById('tabBtnOrders').addEventListener('click', function(){ state.tab='orders'; render(); });
     document.getElementById('tabBtnShip').addEventListener('click', function(){ state.tab='ship'; render(); });
-    document.getElementById('tabBtnPrint').addEventListener('click', function(){ state.tab='print'; render(); });
+    document.getElementById('tabBtnShops').addEventListener('click', function(){ state.tab='shops'; render(); });
 
     var content = document.getElementById('tabContent');
     if(state.tab === 'book'){ content.innerHTML = renderBookTab(); wireBookTab(); }
     else if(state.tab === 'orders'){ content.innerHTML = renderOrdersTab(); wireOrdersTab(); }
     else if(state.tab === 'ship'){ content.innerHTML = renderShipTab(); wireShipTab(); }
-    else if(state.tab === 'print'){ content.innerHTML = renderPrintTab(); wirePrintTab(); }
+    else if(state.tab === 'shops'){ content.innerHTML = renderShopsTab(); wireShopsTab(); }
   }
 
   initAuth();
