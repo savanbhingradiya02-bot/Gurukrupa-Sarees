@@ -184,12 +184,6 @@
     .album-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .album-cell { width: auto; height: 150px; aspect-ratio: auto; }
   }
-  @media (min-width: 700px) {
-    .album-grid { grid-template-columns: repeat(10,1fr); }
-  }
-  @media (min-width: 1200px) {
-    .album-grid { grid-template-columns: repeat(12,1fr); }
-  }
   .album-cell { position: relative; cursor: pointer; aspect-ratio: 3/4; border-radius: 8px; overflow: hidden; background: #202124; }
   .album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.12s, border-radius 0.12s; }
   .album-cell.selected img { transform: scale(0.9); border-radius: 14px; opacity: 0.4; }
@@ -550,10 +544,21 @@
 
   // ===== DATA LOADING =====
 
+  var loadOrdersInFlight = false;
   async function loadOrders(){
+    if(loadOrdersInFlight) return; // prevent duplicate concurrent loads (page load + SIGNED_IN event both fire)
+    loadOrdersInFlight = true;
     state.loading = true;
     render();
     try{
+      // Start the 4 list queries NOW so they run in parallel with orders/items
+      var listPromise = Promise.all([
+        sb.from('resellers').select('name,hidden'),
+        sb.from('shops').select('name,hidden'),
+        sb.from('couriers').select('name,hidden'),
+        sb.from('sizes').select('name,hidden')
+      ]);
+
       var { data: orders, error: ordersErr } = await sb
         .from('orders')
         .select('*')
@@ -596,12 +601,7 @@
       var sizeNames = {};
       (items||[]).forEach(function(it){ if(it.size) sizeNames[it.size.toLowerCase()] = it.size; });
 
-      var listResults = await Promise.all([
-        sb.from('resellers').select('name,hidden'),
-        sb.from('shops').select('name,hidden'),
-        sb.from('couriers').select('name,hidden'),
-        sb.from('sizes').select('name,hidden')
-      ]);
+      var listResults = await listPromise;
       var resellerRows = listResults[0].data;
       var shopRows = listResults[1].data;
       var courierRows = listResults[2].data;
@@ -645,6 +645,7 @@
       showToast('Could not load orders: ' + (e && e.message ? e.message : 'unknown error'));
     }
     state.loading = false;
+    loadOrdersInFlight = false;
     render();
   }
 
@@ -665,6 +666,13 @@
 
   // ===== BOOKING =====
 
+  function addToLocalList(list, val){
+    val = (val || '').trim();
+    if(!val) return;
+    var exists = list.some(function(n){ return n.toLowerCase() === val.toLowerCase(); });
+    if(!exists){ list.push(val); list.sort(); }
+  }
+
   async function saveOrder(name, courier, address, photoEntries){
     var { data: idData, error: idErr } = await sb.rpc('get_next_order_id');
     if(idErr) throw new Error('Could not get order number: ' + idErr.message);
@@ -677,7 +685,7 @@
       address: address,
       status: 'pending',
       created_by: state.session.user.id
-    });
+    }).select().single();
 
     var uploadPromises = photoEntries.map(async function(entry, i){
       var pieceId = orderId + '-' + (i + 1);
@@ -687,10 +695,12 @@
       var path = orderId + '/' + Date.now() + '_' + i + '.jpg';
       var thumbPath = orderId + '/' + Date.now() + '_' + i + '_thumb.jpg';
 
-      var { error: upErr } = await sb.storage.from('order-photos').upload(path, stampedBlob, { contentType: 'image/jpeg' });
-      if(upErr) throw new Error('Photo ' + (i+1) + ' upload failed: ' + upErr.message);
-      var { error: thumbErr } = await sb.storage.from('order-photos').upload(thumbPath, thumbBlob, { contentType: 'image/jpeg' });
-      if(thumbErr) throw new Error('Thumbnail ' + (i+1) + ' upload failed: ' + thumbErr.message);
+      var uploadResults = await Promise.all([
+        sb.storage.from('order-photos').upload(path, stampedBlob, { contentType: 'image/jpeg' }),
+        sb.storage.from('order-photos').upload(thumbPath, thumbBlob, { contentType: 'image/jpeg' })
+      ]);
+      if(uploadResults[0].error) throw new Error('Photo ' + (i+1) + ' upload failed: ' + uploadResults[0].error.message);
+      if(uploadResults[1].error) throw new Error('Thumbnail ' + (i+1) + ' upload failed: ' + uploadResults[1].error.message);
 
       var { data: pub } = sb.storage.from('order-photos').getPublicUrl(path);
       var { data: pubThumb } = sb.storage.from('order-photos').getPublicUrl(thumbPath);
@@ -709,10 +719,12 @@
         size: (photoEntries[idx].sizeVal || '').trim() || null
       };
     });
-    var { error: itemsErr } = await sb.from('order_items').insert(itemRows);
+    var { data: insertedItems, error: itemsErr } = await sb.from('order_items').insert(itemRows).select();
     if(itemsErr) throw new Error('Photo records failed: ' + itemsErr.message);
 
-    return orderId;
+    var newOrder = orderResult.data;
+    newOrder.items = (insertedItems || []).sort(function(a,b){ return a.item_index - b.item_index; });
+    return newOrder;
   }
 
   async function bulkUpdateOrderItems(orderId, status){
@@ -722,14 +734,9 @@
     if(status === 'shipped'){ patch.shipped_at = new Date().toISOString(); patch.shipped_by = state.session.user.id; }
     else { patch.shipped_at = null; patch.shipped_by = null; }
 
-    var { error } = await sb.from('order_items').update(patch).eq('order_id', orderId);
-    if(error){ showToast('Update failed: ' + error.message); return; }
-
+    // Update screen instantly; sync to database in background
     var wasCancelled = ord.status === 'cancelled';
-    if(wasCancelled){
-      await sb.from('orders').update({ status: 'pending' }).eq('id', orderId);
-      ord.status = 'pending';
-    }
+    if(wasCancelled){ ord.status = 'pending'; }
     (ord.items||[]).forEach(function(it){
       it.status = status;
       it.shipped_at = patch.shipped_at;
@@ -737,6 +744,16 @@
     });
     showToast(status === 'shipped' ? 'All pieces marked shipped' : 'All pieces marked pending');
     render();
+
+    var dbOps = [sb.from('order_items').update(patch).eq('order_id', orderId)];
+    if(wasCancelled){ dbOps.push(sb.from('orders').update({ status: 'pending' }).eq('id', orderId)); }
+    Promise.all(dbOps).then(function(results){
+      var failed = results.find(function(r){ return r.error; });
+      if(failed){
+        showToast('Warning: update did not save: ' + failed.error.message);
+        loadOrders();
+      }
+    });
   }
 
   async function deleteOrder(id){
@@ -748,23 +765,29 @@
     render();
   }
 
-  async function cancelOrder(id, reason){
-    var { error } = await sb.from('orders').update({
-      status: 'cancelled',
-      cancel_reason: reason,
-      cancelled_at: new Date().toISOString(),
-      cancelled_by: state.session.user.id
-    }).eq('id', id);
-    if(error){ showToast('Cancel failed: ' + error.message); return; }
+  function cancelOrder(id, reason){
+    var nowIso = new Date().toISOString();
+    // Update screen instantly; sync to database in background
     var ord = state.orders.find(function(o){ return o.id === id; });
     if(ord){
       ord.status = 'cancelled';
       ord.cancel_reason = reason;
-      ord.cancelled_at = new Date().toISOString();
+      ord.cancelled_at = nowIso;
     }
     showToast('Order cancelled');
     closeModal();
     render();
+    sb.from('orders').update({
+      status: 'cancelled',
+      cancel_reason: reason,
+      cancelled_at: nowIso,
+      cancelled_by: state.session.user.id
+    }).eq('id', id).then(function(res){
+      if(res.error){
+        showToast('Warning: cancel did not save: ' + res.error.message);
+        loadOrders();
+      }
+    });
   }
 
   async function printAndMarkShipped(){
@@ -778,16 +801,21 @@
     });
 
     var orderIds = Object.keys(groups);
+    var nowIso = new Date().toISOString();
+
+    // Fire DB updates in the background — print dialog opens instantly
     var updatePromises = orderIds.map(function(orderId){
       return sb.from('order_items').update({
-        status: 'shipped', shipped_at: new Date().toISOString(), shipped_by: state.session.user.id
+        status: 'shipped', shipped_at: nowIso, shipped_by: state.session.user.id
       }).in('id', groups[orderId]);
     });
-    var updateResults = await Promise.all(updatePromises);
-    var failedUpdate = updateResults.find(function(r){ return r.error; });
-    if(failedUpdate){ showToast('Could not mark shipped: ' + failedUpdate.error.message); return; }
-
-    var nowIso = new Date().toISOString();
+    Promise.all(updatePromises).then(function(updateResults){
+      var failedUpdate = updateResults.find(function(r){ return r.error; });
+      if(failedUpdate){
+        showToast('Warning: could not save shipped status: ' + failedUpdate.error.message);
+        loadOrders(); // re-sync from server so screen matches database
+      }
+    });
     var slipsHtml = '';
     orderIds.forEach(function(orderId){
       var ord = state.orders.find(function(o){ return o.id === orderId; });
@@ -826,6 +854,9 @@
   // ===== MODALS =====
 
   function closeModal(){ document.getElementById('modalHost').innerHTML = ''; }
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){ closeModal(); }
+  });
 
   function openZoom(photoSrc){
     document.getElementById('modalHost').innerHTML =
@@ -1539,13 +1570,21 @@
       state.saving = true;
       render();
       try{
-        var orderId = await saveOrder(name, courier, address, state.bookPhotos);
-        showToast('Order #' + orderId + ' saved');
+        var newOrder = await saveOrder(name, courier, address, state.bookPhotos);
+        showToast('Order #' + newOrder.id + ' saved');
+        // Add to local state instantly — no full reload needed
+        state.orders.unshift(newOrder);
+        addToLocalList(state.resellers, name);
+        addToLocalList(state.couriers, courier);
+        newOrder.items.forEach(function(it){
+          addToLocalList(state.shops, it.shop_name);
+          addToLocalList(state.sizes, it.size);
+        });
         state.bookPhotos = [];
         state.nameVal = ''; state.courierVal = ''; state.addressVal = '';
         state.saving = false;
         state.tab = 'orders';
-        await loadOrders();
+        render();
       }catch(err){
         state.bookError = 'Could not save: ' + (err && err.message ? err.message : String(err));
         state.saving = false;
@@ -1907,19 +1946,26 @@
           '<button id="shareYesBtn" style="background:#34a853;color:#06210f;border:none;">Yes, sent</button>' +
         '</div></div></div>';
     document.getElementById('shareNoBtn').addEventListener('click', closeModal);
-    document.getElementById('shareYesBtn').addEventListener('click', async function(){
+    document.getElementById('shareYesBtn').addEventListener('click', function(){
       var ids = batch.map(function(entry){ return entry.item.id; });
-      var { error } = await sb.from('order_items').update({
-        shop_booked_at: new Date().toISOString(),
-        shop_booked_by: state.session.user.id
-      }).in('id', ids);
-      if(error){ showToast('Could not mark as booked: ' + error.message); closeModal(); return; }
+      var nowIso = new Date().toISOString();
+      // Update screen instantly; sync to database in background
       batch.forEach(function(entry){
-        entry.item.shop_booked_at = new Date().toISOString();
+        entry.item.shop_booked_at = nowIso;
+        entry.item.shop_booked_by = state.session.user.id;
       });
       closeModal();
       showToast('Marked as booked with ' + shopName);
       render();
+      sb.from('order_items').update({
+        shop_booked_at: nowIso,
+        shop_booked_by: state.session.user.id
+      }).in('id', ids).then(function(res){
+        if(res.error){
+          showToast('Warning: booking status did not save: ' + res.error.message);
+          loadOrders();
+        }
+      });
     });
   }
 
