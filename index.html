@@ -33,17 +33,17 @@
     .app-brand { font-size: 28px; letter-spacing: 0.5px; margin: 4px 0 2px; }
     .app-brand-sub { font-size: 9px; letter-spacing: 2.5px; margin: 0 0 12px; }
     .tabs { margin-bottom: 12px; padding: 8px 0; }
-    .shop-name-tag { max-width: none; white-space: nowrap; font-size: 10px; padding: 3px 7px; }
+    .shop-name-tag { max-width: calc(100% - 12px); white-space: nowrap; font-size: 10px; padding: 3px 7px; }
     .item-shipped-tag { font-size: 10px; padding: 3px 7px; }
     .piece-id-tag { font-size: 10px; padding: 3px 7px; }
-    .photo-grid { display: flex; flex-wrap: wrap; gap: 8px; column-count: auto; }
-    .photo-thumb { width: 110px; margin-bottom: 0; }
-    .photo-thumb img { height: 140px; object-fit: cover; }
-    .order-photos { display: flex; flex-wrap: wrap; gap: 8px; column-count: auto; }
-    .item-wrap { width: 110px; margin-bottom: 0; border-radius: 8px; overflow: hidden; }
-    .order-photos img { height: 140px; object-fit: cover; }
-    .album-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-    .album-cell { width: 110px; height: 140px; aspect-ratio: auto; }
+    .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; column-count: auto; }
+    .photo-thumb { width: auto; margin-bottom: 0; }
+    .photo-thumb img { width: 100%; height: 150px; object-fit: cover; }
+    .order-photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; column-count: auto; }
+    .item-wrap { width: auto; margin-bottom: 0; border-radius: 8px; overflow: hidden; }
+    .order-photos img { width: 100%; height: 150px; object-fit: cover; }
+    .album-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .album-cell { width: auto; height: 150px; aspect-ratio: auto; }
   }
   .tabs { display: flex; gap: 6px; margin-bottom: 18px; position: sticky; top: 0; background: #131314; padding: 10px 0; z-index: 5; }
   .tab-btn {
