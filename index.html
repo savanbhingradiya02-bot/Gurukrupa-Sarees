@@ -29,17 +29,17 @@
     .album-grid { grid-template-columns: repeat(12,1fr); }
   }
   @media (max-width: 699px) {
-    .app-brand { font-size: 34px; letter-spacing: 0.5px; margin: 4px 0 2px; }
-    .app-brand-sub { font-size: 9.5px; letter-spacing: 3px; margin: 0 0 12px; }
-    .menu-row { position: absolute; top: 14px; left: 14px; margin-bottom: 0; z-index: 6; }
-    .brand-wrap { position: relative; }
+    .brand-wrap { position: relative; padding-left: 44px; }
+    .app-brand { font-size: 28px; letter-spacing: 0.5px; margin: 4px 0 2px; }
+    .app-brand-sub { font-size: 9px; letter-spacing: 2.5px; margin: 0 0 12px; }
+    .menu-row { position: absolute; top: 14px; left: 0; margin-bottom: 0; z-index: 6; }
     .tabs { margin-bottom: 12px; padding: 8px 0; }
-    .photo-grid { column-count: 10; }
-    .order-photos { column-count: 10; }
-    .album-grid { grid-template-columns: repeat(10,1fr); }
-    .shop-name-tag { max-width: none; white-space: nowrap; font-size: 9px; padding: 2px 6px; }
-    .item-shipped-tag { font-size: 9px; padding: 2px 6px; }
-    .piece-id-tag { font-size: 9px; padding: 2px 6px; }
+    .photo-grid { column-count: 4; }
+    .order-photos { column-count: 4; }
+    .album-grid { grid-template-columns: repeat(4,1fr); }
+    .shop-name-tag { max-width: none; white-space: nowrap; font-size: 10px; padding: 3px 7px; }
+    .item-shipped-tag { font-size: 10px; padding: 3px 7px; }
+    .piece-id-tag { font-size: 10px; padding: 3px 7px; }
   }
   .tabs { display: flex; gap: 6px; margin-bottom: 18px; position: sticky; top: 0; background: #131314; padding: 10px 0; z-index: 5; }
   .tab-btn {
@@ -253,10 +253,10 @@
     transform: translateX(-100%); transition: transform 0.22s ease;
   }
   .sidebar-panel.open { transform: translateX(0); }
-  .sidebar-close { background: none; border: none; color: #9aa0a6; font-size: 22px; cursor: pointer; float: right; padding: 0; }
-  .sidebar-identity { position: relative; margin: 20px 0 24px; padding-left: 46px; min-height: 34px; }
-  .sidebar-identity .user-avatar-icon { position: absolute; left: 0; top: 0; }
-  .sidebar-identity span { display: block; font-size: 13.5px; color: #e8eaed; font-weight: 600; line-height: 1.4; word-wrap: break-word; padding-top: 4px; }
+  .sidebar-top-row { display: flex; justify-content: flex-end; }
+  .sidebar-close { background: none; border: none; color: #9aa0a6; font-size: 24px; cursor: pointer; padding: 4px 8px; line-height: 1; }
+  .sidebar-identity { display: flex; align-items: center; gap: 10px; margin: 14px 0 24px; }
+  .sidebar-identity span { flex: 1; min-width: 0; font-size: 13.5px; color: #e8eaed; font-weight: 600; line-height: 1.4; word-wrap: break-word; }
   .user-avatar-icon {
     width: 34px; height: 34px; border-radius: 50%; background: rgba(217,122,63,0.18); border: 1.5px solid #d97a3f;
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
@@ -1907,7 +1907,7 @@
     shellHtml += '</div><div id="tabContent"></div>';
     shellHtml += '<div class="sidebar-overlay" id="sidebarOverlay"></div>';
     shellHtml += '<div class="sidebar-panel" id="sidebarPanel">';
-    shellHtml += '<button class="sidebar-close" id="sidebarCloseBtn">\u00d7</button>';
+    shellHtml += '<div class="sidebar-top-row"><button class="sidebar-close" id="sidebarCloseBtn">\u00d7</button></div>';
     shellHtml += '<div class="sidebar-identity"><div class="user-avatar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#f2a76a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 3.5-7 8-7s8 3 8 7"></path></svg></div><span>' + esc(currentUserLabel()) + '</span></div>';
     shellHtml += '<button id="manageListsBtn">Manage Lists</button>';
     shellHtml += '<button id="logoutBtn">Sign out</button>';
