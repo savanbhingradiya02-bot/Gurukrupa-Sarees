@@ -31,8 +31,15 @@
   @media (max-width: 699px) {
     .app-brand { font-size: 34px; letter-spacing: 0.5px; margin: 4px 0 2px; }
     .app-brand-sub { font-size: 9.5px; letter-spacing: 3px; margin: 0 0 12px; }
-    .menu-row { margin-bottom: 2px; }
+    .menu-row { position: absolute; top: 14px; left: 14px; margin-bottom: 0; z-index: 6; }
+    .brand-wrap { position: relative; }
     .tabs { margin-bottom: 12px; padding: 8px 0; }
+    .photo-grid { column-count: 10; }
+    .order-photos { column-count: 10; }
+    .album-grid { grid-template-columns: repeat(10,1fr); }
+    .shop-name-tag { max-width: none; white-space: nowrap; font-size: 9px; padding: 2px 6px; }
+    .item-shipped-tag { font-size: 9px; padding: 2px 6px; }
+    .piece-id-tag { font-size: 9px; padding: 2px 6px; }
   }
   .tabs { display: flex; gap: 6px; margin-bottom: 18px; position: sticky; top: 0; background: #131314; padding: 10px 0; z-index: 5; }
   .tab-btn {
@@ -1890,7 +1897,7 @@
 
     var pendingCount = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; }).length;
 
-    var shellHtml = '<div class="menu-row no-print"><button class="menu-btn" id="sidebarOpenBtn"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></div><div class="app-brand">GURUKRUPA</div><div class="app-brand-sub">SAREES</div>';
+    var shellHtml = '<div class="brand-wrap"><div class="menu-row no-print"><button class="menu-btn" id="sidebarOpenBtn"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></div><div class="app-brand">GURUKRUPA</div><div class="app-brand-sub">SAREES</div></div>';
     shellHtml += '<div class="tabs no-print">';
     shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook"><span class="tab-icon">\ud83d\udcf8</span>Book Orders</div>';
     shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders"><span class="tab-icon">\ud83d\udccb</span>Orders List' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
