@@ -29,17 +29,21 @@
     .album-grid { grid-template-columns: repeat(12,1fr); }
   }
   @media (max-width: 699px) {
-    .brand-wrap { position: relative; padding-left: 44px; }
+    .brand-wrap { padding-left: 44px; }
     .app-brand { font-size: 28px; letter-spacing: 0.5px; margin: 4px 0 2px; }
     .app-brand-sub { font-size: 9px; letter-spacing: 2.5px; margin: 0 0 12px; }
-    .menu-row { position: absolute; top: 14px; left: 0; margin-bottom: 0; z-index: 6; }
     .tabs { margin-bottom: 12px; padding: 8px 0; }
-    .photo-grid { column-count: 4; }
-    .order-photos { column-count: 4; }
-    .album-grid { grid-template-columns: repeat(4,1fr); }
     .shop-name-tag { max-width: none; white-space: nowrap; font-size: 10px; padding: 3px 7px; }
     .item-shipped-tag { font-size: 10px; padding: 3px 7px; }
     .piece-id-tag { font-size: 10px; padding: 3px 7px; }
+    .photo-grid { display: flex; flex-wrap: wrap; gap: 8px; column-count: auto; }
+    .photo-thumb { width: 110px; margin-bottom: 0; }
+    .photo-thumb img { height: 140px; object-fit: cover; }
+    .order-photos { display: flex; flex-wrap: wrap; gap: 8px; column-count: auto; }
+    .item-wrap { width: 110px; margin-bottom: 0; border-radius: 8px; overflow: hidden; }
+    .order-photos img { height: 140px; object-fit: cover; }
+    .album-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .album-cell { width: 110px; height: 140px; aspect-ratio: auto; }
   }
   .tabs { display: flex; gap: 6px; margin-bottom: 18px; position: sticky; top: 0; background: #131314; padding: 10px 0; z-index: 5; }
   .tab-btn {
@@ -228,7 +232,8 @@
   .login-box input { padding: 14px 16px; font-size: 16px; border-radius: 12px; }
   .login-box .btn-primary { padding: 16px; font-size: 16px; border-radius: 12px; margin-top: 8px; }
 
-  .menu-row { margin-bottom: 4px; }
+  .brand-wrap { position: relative; padding-left: 52px; }
+  .menu-row { position: absolute; top: 50%; transform: translateY(-50%); left: 0; margin-bottom: 0; z-index: 6; }
   .app-brand {
     font-size: clamp(30px, 11.5vw, 91px); font-weight: 900; letter-spacing: 1px; text-align: center; color: #e8eaed;
     margin: 10px 0 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1;
@@ -290,6 +295,7 @@
 <datalist id="resellerList"></datalist>
 <datalist id="shopList"></datalist>
 <datalist id="courierList"></datalist>
+<datalist id="sizeList"></datalist>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -320,6 +326,7 @@
     shopBookingView: 'need',
     shopBookingQuery: '',
     couriers: [],
+    sizes: [],
     manageListsTab: 'resellers',
     trackingOcrQueue: [],
     trackingOcrProcessing: false,
@@ -580,34 +587,53 @@
       var courierNames = {};
       state.orders.forEach(function(o){ if(o.courier) courierNames[o.courier.toLowerCase()] = o.courier; });
 
-      var { data: resellerRows } = await sb.from('resellers').select('name,hidden');
+      var sizeNames = {};
+      (items||[]).forEach(function(it){ if(it.size) sizeNames[it.size.toLowerCase()] = it.size; });
+
+      var listResults = await Promise.all([
+        sb.from('resellers').select('name,hidden'),
+        sb.from('shops').select('name,hidden'),
+        sb.from('couriers').select('name,hidden'),
+        sb.from('sizes').select('name,hidden')
+      ]);
+      var resellerRows = listResults[0].data;
+      var shopRows = listResults[1].data;
+      var courierRows = listResults[2].data;
+      var sizeRows = listResults[3].data;
+
       var hiddenResellers = {};
       (resellerRows||[]).forEach(function(r){
         if(r.hidden){ hiddenResellers[r.name.toLowerCase()] = true; }
         else{ names[r.name.toLowerCase()] = r.name; }
       });
 
-      var { data: shopRows } = await sb.from('shops').select('name,hidden');
       var hiddenShops = {};
       (shopRows||[]).forEach(function(r){
         if(r.hidden){ hiddenShops[r.name.toLowerCase()] = true; }
         else{ shopNames[r.name.toLowerCase()] = r.name; }
       });
 
-      var { data: courierRows } = await sb.from('couriers').select('name,hidden');
       var hiddenCouriers = {};
       (courierRows||[]).forEach(function(r){
         if(r.hidden){ hiddenCouriers[r.name.toLowerCase()] = true; }
         else{ courierNames[r.name.toLowerCase()] = r.name; }
       });
 
+      var hiddenSizes = {};
+      (sizeRows||[]).forEach(function(r){
+        if(r.hidden){ hiddenSizes[r.name.toLowerCase()] = true; }
+        else{ sizeNames[r.name.toLowerCase()] = r.name; }
+      });
+
       Object.keys(hiddenResellers).forEach(function(k){ delete names[k]; });
       Object.keys(hiddenShops).forEach(function(k){ delete shopNames[k]; });
       Object.keys(hiddenCouriers).forEach(function(k){ delete courierNames[k]; });
+      Object.keys(hiddenSizes).forEach(function(k){ delete sizeNames[k]; });
 
       state.resellers = Object.values(names).sort();
       state.shops = Object.values(shopNames).sort();
       state.couriers = Object.values(courierNames).sort();
+      state.sizes = Object.values(sizeNames).sort();
 
     }catch(e){
       showToast('Could not load orders: ' + (e && e.message ? e.message : 'unknown error'));
@@ -839,16 +865,16 @@
 
   function renderManageListsModal(){
     var tab = state.manageListsTab || 'resellers';
-    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers' };
-    var listMap = { resellers: state.resellers, shops: state.shops, couriers: state.couriers || [] };
-    var labelMap = { resellers: 'Reseller', shops: 'Shop', couriers: 'Courier' };
+    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers', sizes: 'sizes' };
+    var listMap = { resellers: state.resellers, shops: state.shops, couriers: state.couriers || [], sizes: state.sizes || [] };
+    var labelMap = { resellers: 'Reseller', shops: 'Shop', couriers: 'Courier', sizes: 'Size' };
 
     var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:400px;text-align:left;">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">';
     html += '<p style="font-size:15px;font-weight:700;margin:0;">Manage Lists</p>';
     html += '<button id="manageListsCloseBtn" style="background:none;border:none;color:#9aa0a6;font-size:20px;cursor:pointer;">\u00d7</button></div>';
     html += '<div class="filters">';
-    ['resellers','shops','couriers'].forEach(function(t){
+    ['resellers','shops','couriers','sizes'].forEach(function(t){
       html += '<div class="filter-chip' + (tab===t?' active':'') + '" data-mtab="' + t + '">' + labelMap[t] + 's</div>';
     });
     html += '</div>';
@@ -889,7 +915,7 @@
 
   async function addListItem(){
     var tab = state.manageListsTab || 'resellers';
-    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers' };
+    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers', sizes: 'sizes' };
     var input = document.getElementById('newListItemInput');
     var name = (input.value || '').trim();
     if(!name) return;
@@ -900,6 +926,7 @@
     }
     if(tab === 'resellers'){ state.resellers = Array.from(new Set(state.resellers.concat([name]))).sort(); }
     else if(tab === 'shops'){ state.shops = Array.from(new Set(state.shops.concat([name]))).sort(); }
+    else if(tab === 'sizes'){ state.sizes = Array.from(new Set((state.sizes||[]).concat([name]))).sort(); }
     else{ state.couriers = Array.from(new Set((state.couriers||[]).concat([name]))).sort(); }
     renderManageListsModal();
     var refreshedInput = document.getElementById('newListItemInput');
@@ -908,11 +935,12 @@
 
   async function deleteListItem(name){
     var tab = state.manageListsTab || 'resellers';
-    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers' };
+    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers', sizes: 'sizes' };
     var { error } = await sb.from(tableMap[tab]).upsert({ name: name, hidden: true }, { onConflict: 'name' });
     if(error){ showToast('Could not remove: ' + error.message); return; }
     if(tab === 'resellers'){ state.resellers = state.resellers.filter(function(n){ return n !== name; }); }
     else if(tab === 'shops'){ state.shops = state.shops.filter(function(n){ return n !== name; }); }
+    else if(tab === 'sizes'){ state.sizes = (state.sizes||[]).filter(function(n){ return n !== name; }); }
     else{ state.couriers = (state.couriers||[]).filter(function(n){ return n !== name; }); }
     renderManageListsModal();
   }
@@ -990,7 +1018,7 @@
       orders.forEach(function(o){
         html += '<div class="shop-tray-item">';
         if(o.tracking_photo_url){
-          html += '<img src="' + o.tracking_photo_url + '" class="orderPhoto" data-src="' + o.tracking_photo_url + '">';
+          html += '<img src="' + o.tracking_photo_url + '" class="orderPhoto" data-src="' + o.tracking_photo_url + '" loading="lazy" decoding="async">';
         }else{
           html += '<div style="width:100%;height:80px;display:flex;align-items:center;justify-content:center;background:#28292c;color:#80868b;font-size:11px;">No photo</div>';
         }
@@ -1374,7 +1402,7 @@
         html += '<label>Photo ' + (i+1) + ' \u2014 Shop</label>';
         html += '<input type="text" class="photoShopInput" data-idx="' + i + '" list="shopList" value="' + esc(p.shopVal||'') + '" style="margin-bottom:8px;">';
         html += '<label>Photo ' + (i+1) + ' \u2014 Size (optional)</label>';
-        html += '<input type="text" class="photoSizeInput" data-idx="' + i + '" value="' + esc(p.sizeVal||'') + '">';
+        html += '<input type="text" class="photoSizeInput" data-idx="' + i + '" list="sizeList" value="' + esc(p.sizeVal||'') + '">';
         html += '</div></div>';
       });
       html += '</div>';
@@ -1398,6 +1426,8 @@
     shopDl.innerHTML = state.shops.map(function(s){ return '<option value="' + esc(s) + '">'; }).join('');
     var courierDl = document.getElementById('courierList');
     courierDl.innerHTML = (state.couriers||[]).map(function(c){ return '<option value="' + esc(c) + '">'; }).join('');
+    var sizeDl = document.getElementById('sizeList');
+    sizeDl.innerHTML = (state.sizes||[]).map(function(s){ return '<option value="' + esc(s) + '">'; }).join('');
 
     document.getElementById('addPhotoBtn') && document.getElementById('addPhotoBtn').addEventListener('click', function(){
       document.getElementById('fileInput').click();
@@ -1456,7 +1486,9 @@
       inp.addEventListener('keydown', function(e){
         if(e.key === 'Enter'){
           e.preventDefault();
+          tryAutocomplete(inp, state.sizes || []);
           var idx = parseInt(inp.getAttribute('data-idx'), 10);
+          if(state.bookPhotos[idx]) state.bookPhotos[idx].sizeVal = inp.value;
           var nextShop = document.querySelector('.photoShopInput[data-idx="' + (idx+1) + '"]');
           if(nextShop){ nextShop.focus(); }
           else{
@@ -1555,7 +1587,7 @@
         var shippedClass = item.status === 'shipped' ? ' shipped-item' : '';
         html += '<div class="item-wrap' + shippedClass + '">';
         if(item.status === 'shipped'){ html += '<span class="item-shipped-tag">Shipped</span>'; }
-        html += '<img data-src="' + item.photo_url + '" class="orderPhoto" src="' + (item.thumb_url || item.photo_url) + '" loading="lazy">';
+        html += '<img data-src="' + item.photo_url + '" class="orderPhoto" src="' + (item.thumb_url || item.photo_url) + '" loading="lazy" decoding="async">';
         if(item.shop_name){ html += '<span class="shop-name-tag">' + esc(item.shop_name) + '</span>'; }
         html += '</div>';
       });
@@ -1658,7 +1690,7 @@
       var key = String(entry.item.id);
       var isSel = !!state.shipSelection[key];
       html += '<div class="album-cell' + (isSel?' selected':'') + '" data-key="' + key + '" data-order="' + entry.order.id + '" data-dbid="' + entry.item.id + '">';
-      html += '<img src="' + (entry.item.thumb_url || entry.item.photo_url) + '" loading="lazy"><div class="album-check">\u2713</div>';
+      html += '<img src="' + (entry.item.thumb_url || entry.item.photo_url) + '" loading="lazy" decoding="async"><div class="album-check">\u2713</div>';
       html += '<button class="album-zoom-btn" data-zoom="' + esc(entry.item.photo_url) + '" aria-label="View full size"><svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"></circle><line x1="15.5" y1="15.5" x2="21" y2="21"></line></svg></button>';
       if(entry.item.shop_name){ html += '<span class="shop-name-tag">' + esc(entry.item.shop_name) + '</span>'; }
       html += '</div>';
@@ -1780,7 +1812,7 @@
         var pieceId = entry.order.id + '-' + (entry.itemIndex+1);
         var st = entry.order.status === 'cancelled' ? 'cancelled' : entry.item.status;
         html += '<div class="shop-tray-item">';
-        html += '<img class="orderPhoto" data-src="' + entry.item.photo_url + '" src="' + (entry.item.thumb_url || entry.item.photo_url) + '" loading="lazy">';
+        html += '<img class="orderPhoto" data-src="' + entry.item.photo_url + '" src="' + (entry.item.thumb_url || entry.item.photo_url) + '" loading="lazy" decoding="async">';
         if(mode === 'all'){
           html += '<span style="position:absolute;top:4px;right:4px;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;background:rgba(0,0,0,0.8);color:#fff;">' + statusLabel[st] + '</span>';
         }
