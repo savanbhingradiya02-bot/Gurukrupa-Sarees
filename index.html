@@ -6,7 +6,8 @@
 <title>Gurukrupa Sarees</title>
 <style>
   * { box-sizing: border-box; }
-  html { overflow-x: hidden; width: 100%; }
+  html { overflow-x: hidden; width: 100%; scrollbar-width: none; -ms-overflow-style: none; }
+  html::-webkit-scrollbar { width: 0; height: 0; display: none; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -14,7 +15,10 @@
     color: #e8eaed;
     overflow-x: hidden;
     width: 100%;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
+  body::-webkit-scrollbar { width: 0; height: 0; display: none; }
   #app { max-width: 480px; margin: 0 auto; padding: 16px 14px 60px; }
   @media (min-width: 700px) {
     #app { max-width: 96%; padding: 24px 24px 60px; }
@@ -179,7 +183,7 @@
   .banner.warn { background: rgba(253,214,99,0.12); border: 1px solid rgba(253,214,99,0.3); color: #fdd663; }
   .banner.err { background: rgba(242,139,130,0.12); border: 1px solid rgba(242,139,130,0.3); color: #f28b82; }
 
-  .album-grid { display: grid; grid-template-columns: repeat(6,1fr); gap: 4px; margin-bottom: 90px; }
+  .album-grid { display: grid; grid-template-columns: repeat(6,1fr); gap: 4px; margin-bottom: 90px; width: 100%; max-width: 100%; }
   @media (max-width: 699px) {
     .album-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .album-cell { width: auto; height: 150px; aspect-ratio: auto; }
@@ -195,9 +199,6 @@
   .album-cell.selected .album-check { background: #8ab4f8; border-color: #8ab4f8; color: #131314; opacity: 1; }
   @media (hover: hover) {
     .album-cell:hover .album-check { opacity: 1; }
-  }
-  @media (hover: none) {
-    .album-check { opacity: 0.9; }
   }
   .album-zoom-btn {
     position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%;
@@ -303,8 +304,8 @@
 (function(){
 
   // ===== CONFIGURE THESE TWO VALUES =====
-  var SUPABASE_URL = 'https://wcrkwscqrazuipfhjggy.supabase.co';
-  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indjcmt3c2NxcmF6dWlwZmhqZ2d5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjYyNTMsImV4cCI6MjEwMjU0MjI1M30.J2P5ET6OLgzHAM2bpQfPOdXhvQAbVk4nJPu75ojlj9I';
+  var SUPABASE_URL = 'https://zgjoonxhxvxgdbrbhmht.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpnam9vbnhoeHZ4Z2RicmJobWh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxNjg1OTgsImV4cCI6MjEwMjc0NDU5OH0.79ZPTZ6osv_El8LgdzyHBHl_fkjB59auFN3qGiQzfXM';
   // =======================================
 
   var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -673,10 +674,24 @@
     if(!exists){ list.push(val); list.sort(); }
   }
 
+  // Fetch the next order number ahead of time so Save doesn't wait ~600ms for it
+  var nextOrderIdPromise = null;
+  function prefetchOrderId(){
+    if(nextOrderIdPromise) return;
+    nextOrderIdPromise = sb.rpc('get_next_order_id').then(function(res){
+      if(res.error){ nextOrderIdPromise = null; return null; }
+      return res.data;
+    }, function(){ nextOrderIdPromise = null; return null; });
+  }
+
   async function saveOrder(name, courier, address, photoEntries){
-    var { data: idData, error: idErr } = await sb.rpc('get_next_order_id');
-    if(idErr) throw new Error('Could not get order number: ' + idErr.message);
-    var orderId = idData;
+    var orderId = nextOrderIdPromise ? await nextOrderIdPromise : null;
+    nextOrderIdPromise = null; // this number is now used up
+    if(!orderId){
+      var { data: idData, error: idErr } = await sb.rpc('get_next_order_id');
+      if(idErr) throw new Error('Could not get order number: ' + idErr.message);
+      orderId = idData;
+    }
 
     var orderInsertPromise = sb.from('orders').insert({
       id: orderId,
@@ -1981,7 +1996,7 @@
 
     var pendingCount = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; }).length;
 
-    var shellHtml = '<div class="brand-wrap"><div class="menu-row no-print"><button class="menu-btn" id="sidebarOpenBtn"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></div><div class="app-brand">GURUKRUPA</div><div class="app-brand-sub">SAREES</div></div>';
+    var shellHtml = '<div class="brand-wrap"><div class="menu-row no-print"><button class="menu-btn" id="sidebarOpenBtn"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></div><div class="app-brand" id="logoReloadBtn" style="cursor:pointer;">GURUKRUPA</div><div class="app-brand-sub">SAREES</div></div>';
     shellHtml += '<div class="tabs no-print">';
     shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook"><span class="tab-icon">\ud83d\udcf8</span>Book Orders</div>';
     shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders"><span class="tab-icon">\ud83d\udccb</span>Orders List' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
@@ -2018,11 +2033,12 @@
       document.getElementById('sidebarPanel').classList.remove('open');
     }
     document.getElementById('sidebarOpenBtn').addEventListener('click', openSidebar);
+    document.getElementById('logoReloadBtn').addEventListener('click', function(){ window.location.reload(); });
     document.getElementById('sidebarCloseBtn').addEventListener('click', closeSidebar);
     document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
 
     var content = document.getElementById('tabContent');
-    if(state.tab === 'book'){ content.innerHTML = renderBookTab(); wireBookTab(); }
+    if(state.tab === 'book'){ prefetchOrderId(); content.innerHTML = renderBookTab(); wireBookTab(); }
     else if(state.tab === 'orders'){ content.innerHTML = renderOrdersTab(); wireOrdersTab(); }
     else if(state.tab === 'ship'){ content.innerHTML = renderShipTab(); wireShipTab(); }
     else if(state.tab === 'shops'){ content.innerHTML = renderShopsTab(); wireShopsTab(); }
