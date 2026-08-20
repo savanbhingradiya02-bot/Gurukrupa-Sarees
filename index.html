@@ -326,6 +326,8 @@
     selectedShop: null,
     shopBookingView: 'need',
     shopBookingQuery: '',
+    trackingQuery: '',
+    courierPrefixes: [],
     couriers: [],
     sizes: [],
     manageListsTab: 'resellers',
@@ -557,7 +559,8 @@
         sb.from('resellers').select('name,hidden'),
         sb.from('shops').select('name,hidden'),
         sb.from('couriers').select('name,hidden'),
-        sb.from('sizes').select('name,hidden')
+        sb.from('sizes').select('name,hidden'),
+        sb.from('courier_prefixes').select('prefix,courier_name')
       ]);
 
       var { data: orders, error: ordersErr } = await sb
@@ -607,6 +610,7 @@
       var shopRows = listResults[1].data;
       var courierRows = listResults[2].data;
       var sizeRows = listResults[3].data;
+      state.courierPrefixes = listResults[4].data || [];
 
       var hiddenResellers = {};
       (resellerRows||[]).forEach(function(r){
@@ -999,8 +1003,44 @@
 
   // ===== TRACKING TAB =====
 
+  // Finds the courier for a scanned tracking number by matching known prefixes.
+  // Longest prefix wins, so a more specific rule beats a shorter accidental match.
+  function detectCourierFromTracking(val){
+    if(!val) return null;
+    var v = val.trim().toUpperCase();
+    var rules = (state.courierPrefixes || []).slice().sort(function(a,b){
+      return b.prefix.length - a.prefix.length;
+    });
+    for(var i=0;i<rules.length;i++){
+      if(v.indexOf(rules[i].prefix.toUpperCase()) === 0){ return rules[i].courier_name; }
+    }
+    return null;
+  }
+
+  // Remembers a prefix->courier mapping for next time (used when staff picks
+  // manually for an unrecognized number, or corrects a wrong auto-guess).
+  async function learnCourierPrefix(trackingVal, courierName){
+    var v = (trackingVal || '').trim().toUpperCase();
+    if(!v || !courierName) return;
+    var prefixLen = /^[A-Z]/.test(v) ? Math.min(4, v.length) : 3;
+    var prefix = v.slice(0, prefixLen);
+    if(!prefix) return;
+    try{
+      var res = await sb.from('courier_prefixes').upsert(
+        { prefix: prefix, courier_name: courierName },
+        { onConflict: 'prefix' }
+      ).select();
+      if(!res.error && res.data && res.data[0]){
+        var idx = state.courierPrefixes.findIndex(function(r){ return r.prefix === prefix; });
+        if(idx === -1){ state.courierPrefixes.push({ prefix: prefix, courier_name: courierName }); }
+        else{ state.courierPrefixes[idx].courier_name = courierName; }
+      }
+    }catch(e){ /* non-critical, fail silently */ }
+  }
+
   function renderTrackingTab(){
     var html = '';
+    var query = (state.trackingQuery || '').trim().toLowerCase();
 
     html += '<div style="margin-bottom:22px;">';
     html += '<label>Scan parcel photos (slip + tracking sticker)</label>';
@@ -1008,6 +1048,8 @@
     html += '<input type="file" id="parcelFileInput" accept="image/*" multiple style="display:none;">';
     html += '<div class="field-hint">Include the printed order ID clearly in the photo for best results.</div>';
     html += '</div>';
+
+    html += '<input class="searchbar" type="text" id="trackingSearchInput" autocomplete="off" placeholder="Search order id, reseller, or tracking number" value="' + esc(state.trackingQuery || '') + '">';
 
     if(state.trackingUnmatched.length > 0){
       html += '<div style="margin-bottom:24px;">';
@@ -1029,10 +1071,16 @@
     var needsTracking = state.orders.filter(function(o){
       return o.status !== 'cancelled' && orderDisplayStatus(o) === 'shipped' && !o.tracking_number;
     });
+    if(query){
+      needsTracking = needsTracking.filter(function(o){
+        var hay = (o.id + ' ' + o.reseller_name).toLowerCase();
+        return hay.indexOf(query) !== -1;
+      });
+    }
     html += '<div style="margin-bottom:24px;">';
     html += '<p style="font-size:14px;font-weight:700;color:#e8eaed;margin:0 0 10px;">Add tracking number (' + needsTracking.length + ' shipped, missing)</p>';
     if(needsTracking.length === 0){
-      html += '<p style="font-size:12.5px;color:#80868b;">All shipped orders have a tracking number.</p>';
+      html += '<p style="font-size:12.5px;color:#80868b;">' + (query ? 'No matches for that search.' : 'All shipped orders have a tracking number.') + '</p>';
     }
     needsTracking.forEach(function(o){
       html += '<div class="order-card">';
@@ -1040,13 +1088,25 @@
       html += '<div style="display:flex;gap:8px;margin-top:8px;">';
       html += '<input type="text" class="trackingNumInput" data-order="' + esc(o.id) + '" autocomplete="off" placeholder="Tracking / AWB number" style="flex:1;">';
       html += '<button class="btn-secondary saveTrackingNumBtn" data-order="' + esc(o.id) + '">Save</button>';
-      html += '</div></div>';
+      html += '</div>';
+      html += '<div class="courier-detect-row" id="courierDetectRow_' + esc(o.id) + '" style="display:none;margin-top:8px;align-items:center;gap:8px;">';
+      html += '<span class="courier-detect-label" id="courierDetectLabel_' + esc(o.id) + '" style="font-size:12px;"></span>';
+      html += '<select class="courierDetectSelect" data-order="' + esc(o.id) + '" data-autofilled="true" style="flex:1;font-size:12.5px;padding:6px 8px;border-radius:8px;background:#28292c;color:#e8eaed;border:1px solid #3c4043;">';
+      html += '<option value="">Pick courier\u2026</option>';
+      (state.couriers||[]).forEach(function(c){ html += '<option value="' + esc(c) + '">' + esc(c) + '</option>'; });
+      html += '</select>';
+      html += '</div>';
+      html += '</div>';
     });
     html += '</div>';
 
     var byReseller = {};
     state.orders.forEach(function(o){
       if((o.tracking_photo_url || o.tracking_number) && !o.tracking_shared_at){
+        if(query){
+          var hay = (o.id + ' ' + o.reseller_name + ' ' + (o.tracking_number||'')).toLowerCase();
+          if(hay.indexOf(query) === -1) return;
+        }
         var key = o.reseller_name || 'Unknown';
         if(!byReseller[key]) byReseller[key] = [];
         byReseller[key].push(o);
@@ -1056,7 +1116,7 @@
     html += '<div>';
     html += '<p style="font-size:14px;font-weight:700;color:#e8eaed;margin:0 0 10px;">Share tracking to client</p>';
     if(resellerKeys.length === 0){
-      html += '<p style="font-size:12.5px;color:#80868b;">Nothing ready to share yet.</p>';
+      html += '<p style="font-size:12.5px;color:#80868b;">' + (query ? 'No matches for that search.' : 'Nothing ready to share yet.') + '</p>';
     }
     resellerKeys.forEach(function(reseller){
       var orders = byReseller[reseller];
@@ -1085,6 +1145,16 @@
   }
 
   function wireTrackingTab(){
+    var trackingSearch = document.getElementById('trackingSearchInput');
+    if(trackingSearch){
+      trackingSearch.addEventListener('input', function(){
+        state.trackingQuery = trackingSearch.value;
+        document.getElementById('tabContent').innerHTML = renderTrackingTab();
+        wireTrackingTab();
+        var refocused = document.getElementById('trackingSearchInput');
+        if(refocused){ refocused.focus(); refocused.setSelectionRange(refocused.value.length, refocused.value.length); }
+      });
+    }
     document.getElementById('scanParcelBtn').addEventListener('click', function(){
       document.getElementById('parcelFileInput').click();
     });
@@ -1130,13 +1200,21 @@
       btn.addEventListener('click', async function(){
         var orderId = btn.getAttribute('data-order');
         var input = document.querySelector('.trackingNumInput[data-order="' + orderId + '"]');
+        var select = document.querySelector('.courierDetectSelect[data-order="' + orderId + '"]');
         var val = (input.value || '').trim();
         if(!val){ showToast('Enter a tracking number'); return; }
-        var { error } = await sb.from('orders').update({ tracking_number: val }).eq('id', orderId);
+        var chosenCourier = select ? select.value : '';
+        var patch = { tracking_number: val };
+        if(chosenCourier){ patch.courier = chosenCourier; }
+        var { error } = await sb.from('orders').update(patch).eq('id', orderId);
         if(error){ showToast('Could not save: ' + error.message); return; }
         var ord = state.orders.find(function(o){ return o.id === orderId; });
-        if(ord) ord.tracking_number = val;
-        showToast('Tracking number saved');
+        if(ord){
+          ord.tracking_number = val;
+          if(chosenCourier) ord.courier = chosenCourier;
+        }
+        if(chosenCourier){ learnCourierPrefix(val, chosenCourier); }
+        showToast(chosenCourier ? 'Tracking number saved (' + chosenCourier + ')' : 'Tracking number saved');
         render();
       });
     });
@@ -1148,6 +1226,41 @@
           var btn = document.querySelector('.saveTrackingNumBtn[data-order="' + orderId + '"]');
           if(btn) btn.click();
         }
+      });
+      inp.addEventListener('input', function(){
+        var orderId = inp.getAttribute('data-order');
+        var val = (inp.value || '').trim();
+        var row = document.getElementById('courierDetectRow_' + orderId);
+        var label = document.getElementById('courierDetectLabel_' + orderId);
+        var select = document.querySelector('.courierDetectSelect[data-order="' + orderId + '"]');
+        if(!row || !label || !select) return;
+        if(!val){
+          row.style.display = 'none';
+          select.value = '';
+          select.setAttribute('data-autofilled', 'true');
+          return;
+        }
+        row.style.display = 'flex';
+        var detected = detectCourierFromTracking(val);
+        if(detected){
+          label.textContent = '\u2713 ' + detected;
+          label.style.color = '#81c995';
+          if(select.getAttribute('data-autofilled') !== 'false'){
+            select.value = detected;
+            select.setAttribute('data-autofilled', 'true');
+          }
+        }else{
+          label.textContent = 'Not recognized \u2014 pick courier:';
+          label.style.color = '#fdd663';
+          if(select.getAttribute('data-autofilled') !== 'false'){
+            select.value = '';
+          }
+        }
+      });
+    });
+    document.querySelectorAll('.courierDetectSelect').forEach(function(sel){
+      sel.addEventListener('change', function(){
+        sel.setAttribute('data-autofilled', 'false');
       });
     });
 
