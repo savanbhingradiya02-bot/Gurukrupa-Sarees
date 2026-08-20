@@ -6,6 +6,64 @@
 <title>Gurukrupa Sarees</title>
 <style>
   * { box-sizing: border-box; }
+
+  /* ===== MOBILE TOUCH BASICS =====
+     Phones show their own grey "flash" on every tap by default — without
+     turning that off, it fights the custom press animation below and looks
+     broken (two different feedbacks firing at once). Also removes the old
+     ~300ms delay some mobile browsers add before registering a tap. */
+  button, .tab-btn, .filter-chip, .btn-add-photo, .draw-color-swatch,
+  .orderPhoto, .item-wrap img, .album-cell, .item-shipped-tag, a {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  /* Smooth momentum scrolling on iOS for any horizontally/vertically scrolling strip */
+  .shop-row-tray, .modal-box, #app { -webkit-overflow-scrolling: touch; }
+
+  /* ===== GLOBAL ANIMATION SYSTEM =====
+     One consistent feel for every clickable thing in the app:
+     press down slightly + brighten on hover. Applied broadly, then a few
+     elements with their own custom hover (tab-btn, filter-chip) get a
+     matching press-down added on top of what they already have. */
+  button, .tab-btn, .filter-chip, .btn-add-photo, .draw-color-swatch,
+  .status-pill, .order-courier, .badge {
+    transition: filter 0.12s ease, transform 0.08s ease, background-color 0.15s ease,
+                border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  }
+  button:not(:disabled):hover, .btn-add-photo:hover { filter: brightness(1.1); }
+  button:not(:disabled):active, .btn-add-photo:active,
+  .draw-color-swatch:active { transform: scale(0.95); }
+  .tab-btn:active { transform: translateY(0) scale(0.97); }
+  .filter-chip:hover { filter: brightness(1.15); }
+  .filter-chip:active { transform: scale(0.95); }
+
+  /* Tap feedback on photo thumbnails — every photo in the app opens a zoom
+     view on tap, so a quick press-down confirms the tap landed. */
+  .orderPhoto, .item-wrap img { transition: transform 0.08s ease; }
+  .orderPhoto:active, .item-wrap img:active { transform: scale(0.96); }
+  .album-cell { transition: transform 0.08s ease; }
+  .album-cell:active { transform: scale(0.97); }
+
+  /* Tab content fades in on switch — .tab-fade is added/removed by JS each
+     time content changes, since a CSS animation on a fixed element only
+     plays once (swapping innerHTML alone doesn't replay it). */
+  .tab-fade { animation: fadeIn 0.16s ease; }
+
+  /* Standard loading spinner, used wherever the app shows "Loading..." */
+  .spinner {
+    display: inline-block; width: 22px; height: 22px; border-radius: 50%;
+    border: 2.5px solid #3c4043; border-top-color: #d97a3f;
+    animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 8px;
+  }
+  .spinner-sm { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(128,128,128,0.35); border-top-color: currentColor; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes modalPop { from { opacity: 0; transform: scale(0.92) translateY(6px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @keyframes badgePulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+  /* ===== END GLOBAL ANIMATION SYSTEM ===== */
+
   html { overflow-x: hidden; width: 100%; scrollbar-width: none; -ms-overflow-style: none; }
   html::-webkit-scrollbar { width: 0; height: 0; display: none; }
   body {
@@ -149,9 +207,9 @@
   .btn-del { padding: 9px 12px; background: #7a2e2e; border: none; color: #ffe3e0; border-radius: 8px; cursor: pointer; }
   .btn-edit { padding: 9px 12px; background: rgba(138,180,248,0.16); border: 1.5px solid #8ab4f8; color: #8ab4f8; border-radius: 8px; cursor: pointer; }
   mark { background: #fdd663; color: #131314; padding: 0 1px; border-radius: 2px; }
-  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #3c4043; color: #e8eaed; padding: 10px 20px; border-radius: 20px; font-size: 13px; z-index: 50; max-width: 90%; text-align: center; }
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; }
-  .modal-box { background: #28292c; border: 1px solid #3c4043; border-radius: 14px; padding: 18px; max-width: 340px; width: 100%; text-align: center; color: #e8eaed; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #3c4043; color: #e8eaed; padding: 10px 20px; border-radius: 20px; font-size: 13px; z-index: 50; max-width: 90%; text-align: center; animation: toastIn 0.22s ease; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; animation: fadeIn 0.15s ease; }
+  .modal-box { background: #28292c; border: 1px solid #3c4043; border-radius: 14px; padding: 18px; max-width: 340px; width: 100%; text-align: center; color: #e8eaed; animation: modalPop 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); }
   .draw-modal-box { background: #131314; width: 100%; max-width: 480px; height: 100%; max-height: 100vh; display: flex; flex-direction: column; padding: 0; }
   .draw-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid #3c4043; }
   .draw-header h2 { font-size: 15px; margin: 0; color: #e8eaed; }
@@ -176,7 +234,7 @@
   @page { margin: 0.4in; }
   .slip-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
   .slip-id { font-family: monospace; font-size: 17px; font-weight: 700; }
-  .slip-barcode { display: block; margin: 2px 0 4px; height: 40px; }
+  .slip-barcode { display: block; margin: 2px 0 4px; height: 40px; width: auto; background: #ffffff; }
   .slip-size { font-size: 13px; color: #444; }
   .slip-time { font-size: 11px; color: #666; margin-bottom: 6px; }
   .slip-name { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
@@ -255,6 +313,8 @@
     font-size: clamp(30px, 11.5vw, 91px); font-weight: 900; letter-spacing: 1px; text-align: center; color: #e8eaed;
     margin: 10px 0 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1;
     white-space: nowrap;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   }
   .app-brand-sub {
     font-size: clamp(10px, 2.4vw, 18px); font-weight: 700; letter-spacing: 5px; text-align: center; color: #d97a3f; margin: 6px 0 20px;
@@ -293,12 +353,14 @@
   .sidebar-panel #logoutBtn { color: #f28b82; border-color: #5c3a3a; }
   @media print {
     .no-print { display: none !important; }
+    html, body { background: #ffffff !important; }
     body * { visibility: hidden; }
     #print-area, #print-area * { visibility: visible; }
-    #print-area { position: absolute; left: 0; top: 0; width: 100%; color: #111; }
+    #print-area { position: absolute; left: 0; top: 0; width: 100%; background: #fff; color: #111; }
     #shipPrintArea { display: block !important; }
     #shipPrintArea, #shipPrintArea * { visibility: visible; }
-    #shipPrintArea { position: absolute; left: 0; top: 0; width: 100%; color: #111; }
+    #shipPrintArea { position: absolute; left: 0; top: 0; width: 100%; background: #fff; color: #111; }
+    .print-slip { background: #fff !important; }
   }
 </style>
 </head>
@@ -611,6 +673,7 @@
   // ===== DATA LOADING =====
 
   var loadOrdersInFlight = false;
+  var lastRenderedTab = null;
   async function loadOrders(){
     if(loadOrdersInFlight) return; // prevent duplicate concurrent loads (page load + SIGNED_IN event both fire)
     loadOrdersInFlight = true;
@@ -995,7 +1058,7 @@
       slipsHtml += '<div class="print-slip">';
       slipsHtml += '<div class="slip-top"><span class="slip-id">Order #' + esc(ord.id) + '</span>';
       slipsHtml += '</div>';
-      slipsHtml += '<svg class="slip-barcode" id="barcode_' + esc(ord.id) + '"></svg>';
+      slipsHtml += '<img class="slip-barcode" id="barcode_' + esc(ord.id) + '" alt="">';
       slipsHtml += '<div class="slip-time">Booked: ' + formatTime(ord.created_at) + '</div>';
       slipsHtml += '<div class="slip-time">Printed: ' + formatTime(nowIso) + '</div>';
       if(prog.total > 1){
@@ -1010,10 +1073,12 @@
     orderIds.forEach(function(orderId){
       var ord = state.orders.find(function(o){ return o.id === orderId; });
       if(!ord) return;
-      var el = document.getElementById('barcode_' + orderId);
-      if(el && window.JsBarcode){
+      var imgEl = document.getElementById('barcode_' + orderId);
+      if(imgEl && window.JsBarcode){
         try{
-          JsBarcode(el, ord.id, { format: 'CODE128', displayValue: false, height: 40, margin: 4, width: 2 });
+          var canvas = document.createElement('canvas');
+          JsBarcode(canvas, ord.id, { format: 'CODE128', displayValue: false, height: 40, margin: 4, width: 2, background: '#ffffff', lineColor: '#000000' });
+          imgEl.src = canvas.toDataURL('image/png');
         }catch(e){ /* if barcode render fails, slip still prints fine without it */ }
       }
     });
@@ -1355,7 +1420,7 @@
 
     html += '<div style="margin-bottom:22px;">';
     html += '<label>Scan parcel photos (slip + tracking sticker)</label>';
-    html += '<button class="btn-add-photo" id="scanParcelBtn" style="margin-bottom:0;" ' + (state.trackingOcrProcessing?'disabled':'') + '>' + (state.trackingOcrProcessing ? 'Reading photos\u2026' : '+ Upload parcel photos') + '</button>';
+    html += '<button class="btn-add-photo" id="scanParcelBtn" style="margin-bottom:0;" ' + (state.trackingOcrProcessing?'disabled':'') + '>' + (state.trackingOcrProcessing ? '<span class="spinner-sm"></span>Reading photos\u2026' : '+ Upload parcel photos') + '</button>';
     html += '<input type="file" id="parcelFileInput" accept="image/*" multiple style="display:none;">';
     html += '<div class="field-hint">Include the printed order ID clearly in the photo for best results.</div>';
     html += '</div>';
@@ -1448,6 +1513,7 @@
       });
     }
     html += '</div>';
+    var byReseller = {};
     state.orders.forEach(function(o){
       if((o.tracking_photo_url || o.tracking_number) && !o.tracking_shared_at){
         if(query){
@@ -2013,7 +2079,7 @@
     });
     html += '</div>';
     if(state.bookPhotos.length < 50){
-      html += '<div class="btn-add-photo" id="addPhotoBtn">' + (state.processing ? 'Processing...' : '+ Add photo (' + state.bookPhotos.length + '/50)') + '</div>';
+      html += '<div class="btn-add-photo" id="addPhotoBtn">' + (state.processing ? '<span class="spinner-sm"></span>Processing...' : '+ Add photo (' + state.bookPhotos.length + '/50)') + '</div>';
     }
     html += '<input type="file" id="fileInput" accept="image/*" multiple style="display:none;"></div>';
 
@@ -2038,7 +2104,7 @@
     html += '<div class="field"><label>Courier (optional)</label><input type="text" id="courierInput" list="courierList" value="' + esc(state.courierVal||'') + '"></div>';
     html += '<div class="field"><label>Full delivery address</label><textarea id="addressInput" rows="5" placeholder="Name, house/flat no, street, city, state, pincode, contact">' + esc(state.addressVal||'') + '</textarea></div>';
     if(state.bookError){ html += '<div class="error-text">' + esc(state.bookError) + '</div>'; }
-    html += '<button class="btn-primary" id="saveOrderBtn" ' + (state.saving||state.processing ? 'disabled' : '') + '>' + (state.saving ? 'Saving...' : 'Save order') + '</button>';
+    html += '<button class="btn-primary" id="saveOrderBtn" ' + (state.saving||state.processing ? 'disabled' : '') + '>' + (state.saving ? '<span class="spinner-sm"></span>Saving...' : 'Save order') + '</button>';
     html += '</div>';
     return html;
   }
@@ -2161,7 +2227,7 @@
       try{
         var newOrder = await saveOrder(name, courier, address, state.bookPhotos, function(done, total){
           var liveBtn = document.getElementById('saveOrderBtn');
-          if(liveBtn){ liveBtn.textContent = 'Saving photo ' + done + ' of ' + total + '\u2026'; }
+          if(liveBtn){ liveBtn.innerHTML = '<span class="spinner-sm"></span>Saving photo ' + done + ' of ' + total + '\u2026'; }
         });
         showToast('Order #' + newOrder.id + ' saved');
         // Add to local state instantly — no full reload needed
@@ -2309,7 +2375,7 @@
     html += '<input class="searchbar" type="text" id="printHistorySearch" autocomplete="off" placeholder="Search order id or reseller" value="' + esc(state.printLogQuery||'') + '">';
 
     if(state.printLogLoading){
-      html += '<div class="loading-state">Loading print history...</div>';
+      html += '<div class="loading-state"><span class="spinner"></span>Loading print history...</div>';
       return html;
     }
 
@@ -2567,7 +2633,7 @@
   }
 
   function renderOrdersTab(){
-    if(state.loading){ return '<div class="loading-state">Loading orders...</div>'; }
+    if(state.loading){ return '<div class="loading-state"><span class="spinner"></span>Loading orders...</div>'; }
     var html = '<input class="searchbar" type="text" id="searchInput" placeholder="Search reseller, size, address, order id, courier" value="' + esc(state.query) + '">';
     html += '<div class="filters">';
     ['pending','shipped','cancelled','all'].forEach(function(f){
@@ -2926,6 +2992,8 @@
     document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
 
     var content = document.getElementById('tabContent');
+    var isTabSwitch = (state.tab !== lastRenderedTab);
+    lastRenderedTab = state.tab;
     try{
       if(state.tab === 'book'){ prefetchOrderId(); content.innerHTML = renderBookTab(); wireBookTab(); }
       else if(state.tab === 'orders'){ content.innerHTML = renderOrdersTab(); wireOrdersTab(); }
@@ -2936,6 +3004,13 @@
     }catch(e){
       content.innerHTML = '<div class="empty-state" style="color:#f28b82;">Something went wrong showing this screen.<br><span style="font-size:11px;color:#9aa0a6;">' + esc(e && e.message ? e.message : String(e)) + '</span><br><br><button class="btn-secondary" onclick="window.location.reload()">Reload page</button></div>';
       console.error('Render error on tab', state.tab, e);
+    }
+    if(isTabSwitch){
+      // Restart the fade-in animation only when we've actually switched tabs —
+      // not on every re-render within the same tab (e.g. typing in search).
+      content.classList.remove('tab-fade');
+      void content.offsetWidth; // force reflow so the animation restarts
+      content.classList.add('tab-fade');
     }
   }
 
