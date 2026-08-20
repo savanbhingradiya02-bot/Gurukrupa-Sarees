@@ -232,17 +232,17 @@
   .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
   .modal-actions button { flex: 1; padding: 10px; border-radius: 8px; font-size: 13px; cursor: pointer; }
   .zoom-img { max-width: 100%; max-height: 80vh; border-radius: 10px; }
-  .print-slip { padding: 14px 4px; border-bottom: 1px dashed #cabfae; color: #111; break-inside: avoid; page-break-inside: avoid; }
-  .print-slip:last-child { border-bottom: none; }
-  @page { margin: 0.4in; }
+  .print-slip { padding: 10px 8px; border: 1px dashed #cabfae; color: #111; break-inside: avoid; page-break-inside: avoid; margin-bottom: 10px; }
+  @page { margin: 0.35in; }
   .slip-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
-  .slip-id { font-family: monospace; font-size: 17px; font-weight: 700; }
-  .slip-barcode { display: block; margin: 2px 0 4px; height: 40px; width: auto; background: #ffffff; }
-  .slip-size { font-size: 13px; color: #444; }
-  .slip-time { font-size: 11px; color: #666; margin-bottom: 6px; }
-  .slip-name { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
-  .slip-courier { font-size: 12px; color: #a14f19; margin: 0 0 4px; }
-  .slip-address { font-size: 13px; white-space: pre-line; line-height: 1.5; margin: 0; }
+  .slip-id { font-family: monospace; font-size: 15px; font-weight: 700; }
+  .slip-barcode { display: block; margin: 2px 0 3px; height: 32px; width: auto; background: #ffffff; }
+  .slip-size { font-size: 12px; color: #444; }
+  .slip-time { font-size: 10px; color: #666; margin-bottom: 4px; }
+  .slip-name { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
+  .slip-courier { font-size: 11px; color: #a14f19; margin: 0 0 3px; }
+  .slip-address { font-size: 12px; white-space: pre-line; line-height: 1.35; margin: 0; }
+  .slip-divider { border: none; border-top: 1px dashed #999; margin: 6px 0; }
   .print-header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
   .btn-print { padding: 9px 16px; background: #d97a3f; color: #1a1207; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
   .btn-print:disabled { opacity: 0.5; }
@@ -362,7 +362,10 @@
     #print-area { position: absolute; left: 0; top: 0; width: 100%; background: #fff; color: #111; }
     #shipPrintArea { display: block !important; }
     #shipPrintArea, #shipPrintArea * { visibility: visible; }
-    #shipPrintArea { position: absolute; left: 0; top: 0; width: 100%; background: #fff; color: #111; }
+    #shipPrintArea {
+      position: absolute; left: 0; top: 0; width: 100%; background: #fff; color: #111;
+      column-count: 2; column-gap: 18px;
+    }
     .print-slip { background: #fff !important; }
   }
 </style>
@@ -1077,12 +1080,13 @@
       slipsHtml += '<div class="slip-top"><span class="slip-id">Order #' + esc(ord.id) + '</span>';
       slipsHtml += '</div>';
       slipsHtml += '<img class="slip-barcode" id="barcode_' + esc(ord.id) + '" alt="">';
+      slipsHtml += '<hr class="slip-divider">';
       slipsHtml += '<div class="slip-time">Booked: ' + formatTime(ord.created_at) + '</div>';
-      slipsHtml += '<div class="slip-time">Printed: ' + formatTime(nowIso) + '</div>';
       if(prog.total > 1){
         slipsHtml += '<div class="slip-time">Shipping ' + shippingNow + ' of ' + prog.total + ' piece(s) in this order</div>';
       }
       if(ord.courier) slipsHtml += '<p class="slip-courier">Courier: ' + esc(ord.courier) + '</p>';
+      slipsHtml += '<hr class="slip-divider">';
       slipsHtml += '<p class="slip-address">' + esc(ord.address) + '</p>';
       slipsHtml += '</div>';
     });
@@ -1894,14 +1898,23 @@
   }
 
   function buildTrackingShareText(o){
-    var lines = ['Order #' + o.id];
+    var SEP = '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500';
+    var lines = ['Order #' + o.id, SEP];
     if(o.tracking_number){
-      lines.push('Tracking: ' + o.tracking_number + (o.courier ? ' (' + o.courier + ')' : ''));
-      lines.push('Track here: ' + getTrackingLink(o.courier, o.tracking_number));
+      // The tracking number itself is the source of truth — staff sometimes
+      // pick a courier at booking time, then actually ship with a different
+      // one. Trust what the number's prefix says over the stored field.
+      var detectedCourier = detectCourierFromTracking(o.tracking_number);
+      var effectiveCourier = detectedCourier || o.courier;
+      lines.push('Tracking: ' + o.tracking_number + (effectiveCourier ? ' (' + effectiveCourier + ')' : ''));
+      lines.push('Track here: ' + getTrackingLink(effectiveCourier, o.tracking_number));
     }else{
       lines.push('Tracking number coming soon');
     }
-    if(o.address) lines.push('Address: ' + o.address);
+    if(o.address){
+      lines.push(SEP);
+      lines.push('Address: ' + o.address);
+    }
     return lines.join('\n');
   }
 
