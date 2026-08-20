@@ -712,7 +712,7 @@
       var { data: orders, error: ordersErr } = await sb
         .from('orders')
         .select('*')
-        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .limit(300);
       if(ordersErr) throw ordersErr;
 
