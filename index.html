@@ -118,7 +118,9 @@
   .order-photos { column-count: 6; column-gap: 6px; margin-bottom: 8px; }
   .item-wrap { position: relative; break-inside: avoid; margin-bottom: 6px; }
   .item-wrap.shipped-item img { opacity: 0.4; }
-  .item-shipped-tag { position: absolute; top: 6px; left: 6px; background: #34a853; color: #06210f; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; z-index: 2; }
+  .item-shipped-tag { position: absolute; top: 6px; left: 6px; background: #34a853; color: #06210f; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; z-index: 2; border: none; cursor: pointer; transition: filter 0.12s, transform 0.08s; }
+  .item-shipped-tag:hover { filter: brightness(1.12); }
+  .item-shipped-tag:active { transform: scale(0.94); }
   .order-photos img { width: 100%; height: auto; border-radius: 8px; cursor: zoom-in; display: block; }
   .order-name { font-size: 14.5px; font-weight: 600; margin: 0 0 3px; color: #e8eaed; }
   .order-courier { font-size: 12px; color: #f2a76a; background: rgba(217,122,63,0.15); display: inline-block; padding: 2px 8px; border-radius: 6px; margin-bottom: 6px; }
@@ -136,10 +138,16 @@
   .order-address { font-size: 13.5px; color: #9aa0a6; white-space: pre-line; line-height: 1.55; margin: 0 0 10px; }
   .order-cancel-note { display: block; font-size: 12px; color: #f28b82; background: rgba(242,139,130,0.12); padding: 4px 9px; border-radius: 6px; margin-bottom: 6px; white-space: pre-line; }
   .order-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  .btn-ship { flex: 1; padding: 9px; font-size: 13px; font-weight: 600; background: #34a853; color: #06210f; border: none; border-radius: 8px; cursor: pointer; }
-  .btn-unship { flex: 1; padding: 9px; font-size: 13px; background: #28292c; border: 1px solid #3c4043; border-radius: 8px; cursor: pointer; color: #9aa0a6; }
-  .btn-cancel { padding: 9px 12px; background: #28292c; border: 1px solid #5c3a3a; color: #f28b82; border-radius: 8px; cursor: pointer; font-size: 13px; }
-  .btn-del { padding: 9px 12px; background: #28292c; border: 1px solid #5c3a3a; color: #f28b82; border-radius: 8px; cursor: pointer; }
+  .btn-ship, .btn-unship, .btn-cancel, .btn-del, .btn-edit {
+    transition: filter 0.12s, transform 0.08s;
+  }
+  .btn-ship:hover, .btn-unship:hover, .btn-cancel:hover, .btn-del:hover, .btn-edit:hover { filter: brightness(1.12); }
+  .btn-ship:active, .btn-unship:active, .btn-cancel:active, .btn-del:active, .btn-edit:active { transform: scale(0.96); }
+  .btn-ship { flex: 1; padding: 9px; font-size: 13px; font-weight: 700; background: #34a853; color: #06210f; border: none; border-radius: 8px; cursor: pointer; }
+  .btn-unship { flex: 1; padding: 9px; font-size: 13px; font-weight: 700; background: #f2a76a; color: #1a1207; border: none; border-radius: 8px; cursor: pointer; }
+  .btn-cancel { padding: 9px 12px; background: rgba(242,139,130,0.16); border: 1.5px solid #f28b82; color: #f28b82; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .btn-del { padding: 9px 12px; background: #7a2e2e; border: none; color: #ffe3e0; border-radius: 8px; cursor: pointer; }
+  .btn-edit { padding: 9px 12px; background: rgba(138,180,248,0.16); border: 1.5px solid #8ab4f8; color: #8ab4f8; border-radius: 8px; cursor: pointer; }
   mark { background: #fdd663; color: #131314; padding: 0 1px; border-radius: 2px; }
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #3c4043; color: #e8eaed; padding: 10px 20px; border-radius: 20px; font-size: 13px; z-index: 50; max-width: 90%; text-align: center; }
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; }
@@ -338,6 +346,11 @@
     trackingQuery: '',
     courierPrefixes: [],
     scanMode: { active: false, stage: 'order', selectedOrderId: null, savedCount: 0 },
+    showTrackingEditList: false,
+    printLog: [],
+    printLogLoading: false,
+    printLogLoaded: false,
+    printLogQuery: '',
     couriers: [],
     sizes: [],
     manageListsTab: 'resellers',
@@ -394,12 +407,52 @@
     setTimeout(function(){ host.innerHTML = ''; }, 2600);
   }
 
+  function showToastWithAction(msg, actionLabel, actionFn){
+    var host = document.getElementById('toastHost');
+    host.innerHTML = '<div class="toast" style="display:flex;align-items:center;gap:12px;">' +
+      '<span>' + esc(msg) + '</span>' +
+      '<button id="toastActionBtn" style="background:#3fa9f5;color:#131314;border:none;border-radius:14px;padding:5px 12px;font-size:12.5px;font-weight:700;cursor:pointer;">' + esc(actionLabel) + '</button>' +
+    '</div>';
+    var timer = setTimeout(function(){ host.innerHTML = ''; }, 10000);
+    document.getElementById('toastActionBtn').addEventListener('click', function(){
+      clearTimeout(timer);
+      host.innerHTML = '';
+      actionFn();
+    });
+  }
+
   function currentUserLabel(){
     if(!state.session || !state.session.user) return 'Unknown';
     return state.session.user.email;
   }
 
   function resizeImageToBlob(file, maxW){
+    // createImageBitmap uses the browser's native (often hardware-accelerated)
+    // decoder and is meaningfully faster than the Image()+canvas path on phones.
+    if(window.createImageBitmap){
+      return createImageBitmap(file).then(function(bitmap){
+        var w = bitmap.width, hh = bitmap.height;
+        if(w > maxW){ hh = Math.round(hh * (maxW/w)); w = maxW; }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = hh;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0, w, hh);
+        bitmap.close();
+        return new Promise(function(resolve, reject){
+          canvas.toBlob(function(blob){
+            if(!blob){ reject(new Error('Could not compress photo')); return; }
+            resolve(blob);
+          }, 'image/jpeg', 0.6);
+        });
+      }).catch(function(){
+        // Fall back to the older, slower-but-universal method below.
+        return resizeImageToBlobLegacy(file, maxW);
+      });
+    }
+    return resizeImageToBlobLegacy(file, maxW);
+  }
+
+  function resizeImageToBlobLegacy(file, maxW){
     return new Promise(function(resolve, reject){
       var reader = new FileReader();
       reader.onerror = function(){ reject(new Error('Could not read the photo file')); };
@@ -698,7 +751,7 @@
     }, function(){ nextOrderIdPromise = null; return null; });
   }
 
-  async function saveOrder(name, courier, address, photoEntries){
+  async function saveOrder(name, courier, address, photoEntries, onProgress){
     var orderId = nextOrderIdPromise ? await nextOrderIdPromise : null;
     nextOrderIdPromise = null; // this number is now used up
     if(!orderId){
@@ -716,6 +769,8 @@
       created_by: state.session.user.id
     }).select().single();
 
+    var doneCount = 0;
+    var totalCount = photoEntries.length;
     var uploadPromises = photoEntries.map(async function(entry, i){
       var pieceId = orderId + '-' + (i + 1);
       var stampedBlob = await drawWatermarkedBlob(entry.blob, pieceId, entry.sizeVal);
@@ -733,6 +788,8 @@
 
       var { data: pub } = sb.storage.from('order-photos').getPublicUrl(path);
       var { data: pubThumb } = sb.storage.from('order-photos').getPublicUrl(thumbPath);
+      doneCount++;
+      if(onProgress){ onProgress(doneCount, totalCount); }
       return { photoUrl: pub.publicUrl, thumbUrl: pubThumb.publicUrl };
     });
 
@@ -754,6 +811,29 @@
     var newOrder = orderResult.data;
     newOrder.items = (insertedItems || []).sort(function(a,b){ return a.item_index - b.item_index; });
     return newOrder;
+  }
+
+  // Reverts a single piece (not the whole order) back to pending — used when
+  // the "Shipped" tag on an individual photo is tapped.
+  function revertSingleItemToPending(itemId){
+    var ord = null, item = null;
+    state.orders.forEach(function(o){
+      (o.items||[]).forEach(function(it){ if(it.id === itemId){ ord = o; item = it; } });
+    });
+    if(!item) return;
+
+    item.status = 'pending';
+    item.shipped_at = null;
+    item.shipped_by = null;
+    showToast('That piece is pending again');
+    render();
+
+    sb.from('order_items').update({ status: 'pending', shipped_at: null, shipped_by: null }).eq('id', itemId).then(function(res){
+      if(res.error){
+        showToast('Warning: did not save: ' + res.error.message);
+        loadOrders();
+      }
+    });
   }
 
   async function bulkUpdateOrderItems(orderId, status){
@@ -876,6 +956,26 @@
         loadOrders(); // re-sync from server so screen matches database
       }
     });
+
+    // Record this print event for the Print History page (non-critical, fire and forget)
+    var printLogRows = orderIds.map(function(orderId){
+      var ord0 = state.orders.find(function(o){ return o.id === orderId; });
+      return {
+        order_id: orderId,
+        reseller_name: ord0 ? ord0.reseller_name : null,
+        piece_count: groups[orderId].length,
+        printed_by: state.session.user.id,
+        printed_by_email: state.session.user.email,
+        printed_at: nowIso
+      };
+    });
+    sb.from('print_log').insert(printLogRows).then(function(res){
+      if(res.error){ console.error('Could not save print history', res.error); }
+      else{
+        state.printLog = printLogRows.map(function(r, i){ return Object.assign({ id: 'temp' + i }, r); }).concat(state.printLog);
+      }
+    });
+
     var slipsHtml = '';
     orderIds.forEach(function(orderId){
       var ord = state.orders.find(function(o){ return o.id === orderId; });
@@ -897,6 +997,7 @@
       slipsHtml += '</div>';
       slipsHtml += '<svg class="slip-barcode" id="barcode_' + esc(ord.id) + '"></svg>';
       slipsHtml += '<div class="slip-time">Booked: ' + formatTime(ord.created_at) + '</div>';
+      slipsHtml += '<div class="slip-time">Printed: ' + formatTime(nowIso) + '</div>';
       if(prog.total > 1){
         slipsHtml += '<div class="slip-time">Shipping ' + shippingNow + ' of ' + prog.total + ' piece(s) in this order</div>';
       }
@@ -918,7 +1019,31 @@
     });
     window.print();
     state.shipSelection = {};
-    showToast('Marked shipped and sent to print');
+    var allShippedIds = [];
+    Object.keys(groups).forEach(function(orderId){ allShippedIds = allShippedIds.concat(groups[orderId]); });
+    showToastWithAction('Marked shipped and sent to print', 'Undo', function(){
+      // Revert exactly the pieces we just marked, back to pending — both on screen and in the database.
+      orderIds.forEach(function(orderId){
+        var ord2 = state.orders.find(function(o){ return o.id === orderId; });
+        if(!ord2) return;
+        (ord2.items||[]).forEach(function(it){
+          if(allShippedIds.indexOf(it.id) !== -1){
+            it.status = 'pending';
+            it.shipped_at = null;
+            it.shipped_by = null;
+          }
+        });
+      });
+      render();
+      sb.from('order_items').update({ status: 'pending', shipped_at: null, shipped_by: null }).in('id', allShippedIds).then(function(res){
+        if(res.error){
+          showToast('Warning: undo did not save: ' + res.error.message);
+          loadOrders();
+        }else{
+          showToast('Undone \u2014 back to pending');
+        }
+      });
+    });
     render();
   }
 
@@ -943,8 +1068,22 @@
           '<button id="cancelDelBtn" style="background:#fff;border:1px solid #e4ddd2;">Cancel</button>' +
           '<button id="confirmDelBtn" style="background:#d43b3b;color:#fff;border:none;">Delete</button>' +
         '</div></div></div>';
-    document.getElementById('cancelDelBtn').addEventListener('click', closeModal);
-    document.getElementById('confirmDelBtn').addEventListener('click', function(){ deleteOrder(id); });
+    var enterHandler = function(e){
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        document.removeEventListener('keydown', enterHandler);
+        deleteOrder(id);
+      }
+    };
+    document.addEventListener('keydown', enterHandler);
+    document.getElementById('cancelDelBtn').addEventListener('click', function(){
+      document.removeEventListener('keydown', enterHandler);
+      closeModal();
+    });
+    document.getElementById('confirmDelBtn').addEventListener('click', function(){
+      document.removeEventListener('keydown', enterHandler);
+      deleteOrder(id);
+    });
   }
 
   function openCancelConfirm(id){
@@ -987,7 +1126,8 @@
     });
     html += '</div>';
     html += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
-    html += '<input type="text" id="newListItemInput" autocomplete="off" placeholder="Add new ' + labelMap[tab].toLowerCase() + '" style="flex:1;">';
+    var datalistMap = { resellers: 'resellerList', shops: 'shopList', couriers: 'courierList', sizes: 'sizeList' };
+    html += '<input type="text" id="newListItemInput" list="' + datalistMap[tab] + '" autocomplete="off" placeholder="Add new ' + labelMap[tab].toLowerCase() + '" style="flex:1;">';
     html += '<button class="btn-secondary" id="addListItemBtn">Add</button></div>';
     html += '<div style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">';
     var list = listMap[tab];
@@ -1092,17 +1232,19 @@
 
   // Shared save path used by both the manual tracking list and Scan Mode.
   // Returns { ok: true } or { ok: false, message: '...' }.
-  async function saveTrackingForOrder(orderId, trackingVal, courierName){
+  async function saveTrackingForOrder(orderId, trackingVal, courierName, resetShared){
     var val = (trackingVal || '').trim();
     if(!val) return { ok: false, message: 'Enter a tracking number' };
     var patch = { tracking_number: val };
     if(courierName){ patch.courier = courierName; }
+    if(resetShared){ patch.tracking_shared_at = null; }
     var { error } = await sb.from('orders').update(patch).eq('id', orderId);
     if(error) return { ok: false, message: error.message };
     var ord = state.orders.find(function(o){ return o.id === orderId; });
     if(ord){
       ord.tracking_number = val;
       if(courierName) ord.courier = courierName;
+      if(resetShared) ord.tracking_shared_at = null;
     }
     if(courierName){ learnCourierPrefix(val, courierName); }
     return { ok: true };
@@ -1271,7 +1413,41 @@
     });
     html += '</div>';
 
-    var byReseller = {};
+    var trackedOrders = state.orders.filter(function(o){
+      return o.status !== 'cancelled' && !!o.tracking_number;
+    });
+    if(query){
+      trackedOrders = trackedOrders.filter(function(o){
+        var hay = (o.id + ' ' + o.reseller_name + ' ' + (o.tracking_number||'')).toLowerCase();
+        return hay.indexOf(query) !== -1;
+      });
+    }
+    html += '<div style="margin-bottom:24px;">';
+    html += '<button class="btn-secondary" id="toggleTrackingEditBtn" style="margin-bottom:10px;">' + (state.showTrackingEditList ? 'Hide' : 'Change a tracking number') + '</button>';
+    if(state.showTrackingEditList){
+      html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 10px;">Courier changed the number? Update it here \u2014 it will re-appear below in \u201cShare tracking to client\u201d so you can send the new one.</p>';
+      if(trackedOrders.length === 0){
+        html += '<p style="font-size:12.5px;color:#80868b;">' + (query ? 'No matches for that search.' : 'No orders have a tracking number yet.') + '</p>';
+      }
+      trackedOrders.forEach(function(o){
+        html += '<div class="order-card">';
+        html += '<div class="order-top"><span class="order-id">#' + esc(o.id) + '</span><span style="font-size:12px;color:#9aa0a6;">' + esc(o.reseller_name) + '</span></div>';
+        html += '<div style="font-size:11.5px;color:#80868b;margin-bottom:6px;">Current: ' + esc(o.tracking_number) + (o.courier ? ' \u00b7 ' + esc(o.courier) : '') + (o.tracking_shared_at ? ' \u00b7 already shared' : '') + '</div>';
+        html += '<div style="display:flex;gap:8px;">';
+        html += '<input type="text" class="updateTrackingNumInput" data-order="' + esc(o.id) + '" autocomplete="off" placeholder="New tracking / AWB number" style="flex:1;">';
+        html += '<button class="btn-secondary updateSaveTrackingNumBtn" data-order="' + esc(o.id) + '">Save</button>';
+        html += '</div>';
+        html += '<div class="courier-detect-row" id="updCourierDetectRow_' + esc(o.id) + '" style="display:none;margin-top:8px;align-items:center;gap:8px;">';
+        html += '<span class="courier-detect-label" id="updCourierDetectLabel_' + esc(o.id) + '" style="font-size:12px;"></span>';
+        html += '<select class="updateCourierDetectSelect" data-order="' + esc(o.id) + '" data-autofilled="true" style="flex:1;font-size:12.5px;padding:6px 8px;border-radius:8px;background:#28292c;color:#e8eaed;border:1px solid #3c4043;">';
+        html += '<option value="">Pick courier\u2026</option>';
+        (state.couriers||[]).forEach(function(c){ html += '<option value="' + esc(c) + '"' + (c===o.courier?' selected':'') + '>' + esc(c) + '</option>'; });
+        html += '</select>';
+        html += '</div>';
+        html += '</div>';
+      });
+    }
+    html += '</div>';
     state.orders.forEach(function(o){
       if((o.tracking_photo_url || o.tracking_number) && !o.tracking_shared_at){
         if(query){
@@ -1367,6 +1543,59 @@
         render();
       });
     }
+
+    var toggleTrackingEditBtn = document.getElementById('toggleTrackingEditBtn');
+    if(toggleTrackingEditBtn){
+      toggleTrackingEditBtn.addEventListener('click', function(){
+        state.showTrackingEditList = !state.showTrackingEditList;
+        document.getElementById('tabContent').innerHTML = renderTrackingTab();
+        wireTrackingTab();
+      });
+    }
+    document.querySelectorAll('.updateSaveTrackingNumBtn').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var orderId = btn.getAttribute('data-order');
+        var input = document.querySelector('.updateTrackingNumInput[data-order="' + orderId + '"]');
+        var select = document.querySelector('.updateCourierDetectSelect[data-order="' + orderId + '"]');
+        var chosenCourier = select ? select.value : '';
+        var result = await saveTrackingForOrder(orderId, input.value, chosenCourier, true);
+        if(!result.ok){ showToast('Could not save: ' + result.message); return; }
+        showToast('Tracking updated for #' + orderId + (chosenCourier ? ' (' + chosenCourier + ')' : '') + ' \u2014 ready to share');
+        render();
+      });
+    });
+    document.querySelectorAll('.updateTrackingNumInput').forEach(function(inp){
+      inp.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          var orderId = inp.getAttribute('data-order');
+          var btn = document.querySelector('.updateSaveTrackingNumBtn[data-order="' + orderId + '"]');
+          if(btn) btn.click();
+        }
+      });
+      inp.addEventListener('input', function(){
+        var orderId = inp.getAttribute('data-order');
+        var val = (inp.value || '').trim();
+        var row = document.getElementById('updCourierDetectRow_' + orderId);
+        var label = document.getElementById('updCourierDetectLabel_' + orderId);
+        var select = document.querySelector('.updateCourierDetectSelect[data-order="' + orderId + '"]');
+        if(!row || !label || !select) return;
+        if(!val){ row.style.display = 'none'; return; }
+        row.style.display = 'flex';
+        var detected = detectCourierFromTracking(val);
+        if(detected){
+          label.textContent = '\u2713 ' + detected;
+          label.style.color = '#81c995';
+          if(select.getAttribute('data-autofilled') !== 'false'){ select.value = detected; }
+        }else{
+          label.textContent = 'Not recognized \u2014 pick courier:';
+          label.style.color = '#fdd663';
+        }
+      });
+    });
+    document.querySelectorAll('.updateCourierDetectSelect').forEach(function(sel){
+      sel.addEventListener('change', function(){ sel.setAttribute('data-autofilled', 'false'); });
+    });
 
     var trackingSearch = document.getElementById('trackingSearchInput');
     if(trackingSearch){
@@ -1587,14 +1816,20 @@
           '<button id="trackShareYesBtn" style="background:#34a853;color:#06210f;border:none;">Yes, sent</button>' +
         '</div></div></div>';
     document.getElementById('trackShareNoBtn').addEventListener('click', closeModal);
-    document.getElementById('trackShareYesBtn').addEventListener('click', async function(){
+    document.getElementById('trackShareYesBtn').addEventListener('click', function(){
       var ids = batch.map(function(o){ return o.id; });
-      var { error } = await sb.from('orders').update({ tracking_shared_at: new Date().toISOString() }).in('id', ids);
-      if(error){ showToast('Could not mark as shared: ' + error.message); closeModal(); return; }
-      batch.forEach(function(o){ o.tracking_shared_at = new Date().toISOString(); });
+      var nowIso = new Date().toISOString();
+      // Update screen instantly; sync to database in background
+      batch.forEach(function(o){ o.tracking_shared_at = nowIso; });
       closeModal();
       showToast('Marked as shared with ' + reseller);
       render();
+      sb.from('orders').update({ tracking_shared_at: nowIso }).in('id', ids).then(function(res){
+        if(res.error){
+          showToast('Warning: could not save shared status: ' + res.error.message);
+          loadOrders();
+        }
+      });
     });
   }
 
@@ -1710,6 +1945,7 @@
       redraw();
     });
     document.getElementById('drawDoneBtn').addEventListener('click', function(){
+      document.removeEventListener('keydown', drawEnterHandler);
       canvas.toBlob(function(blob){
         if(!blob){ showToast('Could not save the edit \u2014 try again'); return; }
         var newUrl = URL.createObjectURL(blob);
@@ -1720,6 +1956,16 @@
         showToast('Photo updated');
       }, 'image/jpeg', 0.85);
     });
+
+    var drawEnterHandler = function(e){
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        document.getElementById('drawDoneBtn').click();
+      }
+    };
+    document.addEventListener('keydown', drawEnterHandler);
+    document.getElementById('drawCloseBtn').addEventListener('click', function(){ document.removeEventListener('keydown', drawEnterHandler); });
+    document.getElementById('drawCancelBtn').addEventListener('click', function(){ document.removeEventListener('keydown', drawEnterHandler); });
   }
 
   // ===== LOGIN SCREEN =====
@@ -1798,14 +2044,7 @@
   }
 
   function wireBookTab(){
-    var dl = document.getElementById('resellerList');
-    dl.innerHTML = state.resellers.map(function(r){ return '<option value="' + esc(r) + '">'; }).join('');
-    var shopDl = document.getElementById('shopList');
-    shopDl.innerHTML = state.shops.map(function(s){ return '<option value="' + esc(s) + '">'; }).join('');
-    var courierDl = document.getElementById('courierList');
-    courierDl.innerHTML = (state.couriers||[]).map(function(c){ return '<option value="' + esc(c) + '">'; }).join('');
-    var sizeDl = document.getElementById('sizeList');
-    sizeDl.innerHTML = (state.sizes||[]).map(function(s){ return '<option value="' + esc(s) + '">'; }).join('');
+    refreshGlobalDatalists();
 
     document.getElementById('addPhotoBtn') && document.getElementById('addPhotoBtn').addEventListener('click', function(){
       document.getElementById('fileInput').click();
@@ -1898,6 +2137,15 @@
         if(addressInput) addressInput.focus();
       }
     });
+    if(addressInput) addressInput.addEventListener('keydown', function(e){
+      if(e.key === 'Enter' && !e.shiftKey){
+        e.preventDefault();
+        state.addressVal = addressInput.value;
+        var btn = document.getElementById('saveOrderBtn');
+        if(btn) btn.click();
+      }
+      // Shift+Enter still inserts a normal line break for multi-line addresses.
+    });
 
     var saveBtn = document.getElementById('saveOrderBtn');
     saveBtn && saveBtn.addEventListener('click', async function(){
@@ -1911,7 +2159,10 @@
       state.saving = true;
       render();
       try{
-        var newOrder = await saveOrder(name, courier, address, state.bookPhotos);
+        var newOrder = await saveOrder(name, courier, address, state.bookPhotos, function(done, total){
+          var liveBtn = document.getElementById('saveOrderBtn');
+          if(liveBtn){ liveBtn.textContent = 'Saving photo ' + done + ' of ' + total + '\u2026'; }
+        });
         showToast('Order #' + newOrder.id + ' saved');
         // Add to local state instantly — no full reload needed
         state.orders.unshift(newOrder);
@@ -1972,7 +2223,7 @@
       (o.items||[]).forEach(function(item, idx){
         var shippedClass = item.status === 'shipped' ? ' shipped-item' : '';
         html += '<div class="item-wrap' + shippedClass + '">';
-        if(item.status === 'shipped'){ html += '<span class="item-shipped-tag">Shipped</span>'; }
+        if(item.status === 'shipped'){ html += '<button class="item-shipped-tag" data-revert-item="' + item.id + '" title="Tap to mark just this piece pending">Shipped \u21ba</button>'; }
         html += '<img data-src="' + item.photo_url + '" class="orderPhoto" src="' + (item.thumb_url || item.photo_url) + '" loading="lazy" decoding="async">';
         if(item.shop_name){ html += '<span class="shop-name-tag">' + esc(item.shop_name) + '</span>'; }
         html += '</div>';
@@ -1991,6 +2242,7 @@
         if(ds !== 'pending'){ html += '<button class="btn-unship" data-unship="' + o.id + '">Mark all pending</button>'; }
         html += '<button class="btn-cancel" data-cancel="' + o.id + '">Cancel</button>';
       }
+      html += '<button class="btn-edit" data-edit="' + o.id + '">\u270f\ufe0f</button>';
       html += '<button class="btn-del" data-del="' + o.id + '">\ud83d\uddd1</button>';
       html += '</div></div>';
     });
@@ -2010,6 +2262,15 @@
     document.querySelectorAll('[data-del]').forEach(function(btn){
       btn.addEventListener('click', function(){ openDeleteConfirm(btn.getAttribute('data-del')); });
     });
+    document.querySelectorAll('[data-edit]').forEach(function(btn){
+      btn.addEventListener('click', function(){ openEditOrderModal(btn.getAttribute('data-edit')); });
+    });
+    document.querySelectorAll('[data-revert-item]').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        revertSingleItemToPending(parseInt(btn.getAttribute('data-revert-item'), 10));
+      });
+    });
     document.querySelectorAll('[data-cancel]').forEach(function(btn){
       btn.addEventListener('click', function(){ openCancelConfirm(btn.getAttribute('data-cancel')); });
     });
@@ -2020,6 +2281,289 @@
     if(!el) return;
     el.innerHTML = renderOrderCardsHtml(getFilteredOrders());
     wireOrderCards();
+  }
+
+  // ===== PRINT HISTORY PAGE =====
+
+  async function loadPrintHistoryIfNeeded(){
+    if(state.printLogLoaded || state.printLogLoading) return;
+    state.printLogLoading = true;
+    try{
+      var { data, error } = await sb.from('print_log').select('*').order('printed_at', { ascending: false }).limit(500);
+      if(error) throw error;
+      state.printLog = data || [];
+      state.printLogLoaded = true;
+    }catch(e){
+      showToast('Could not load print history: ' + (e && e.message ? e.message : 'unknown error'));
+    }
+    state.printLogLoading = false;
+    if(state.tab === 'printhistory'){
+      document.getElementById('tabContent').innerHTML = renderPrintHistoryTab();
+      wirePrintHistoryTab();
+    }
+  }
+
+  function renderPrintHistoryTab(){
+    var html = '<h2 style="margin:0 0 4px;font-size:18px;">Print History</h2>';
+    html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">Every time a slip was printed, with the exact date and time.</p>';
+    html += '<input class="searchbar" type="text" id="printHistorySearch" autocomplete="off" placeholder="Search order id or reseller" value="' + esc(state.printLogQuery||'') + '">';
+
+    if(state.printLogLoading){
+      html += '<div class="loading-state">Loading print history...</div>';
+      return html;
+    }
+
+    var query = (state.printLogQuery||'').trim().toLowerCase();
+    var rows = state.printLog;
+    if(query){
+      rows = rows.filter(function(r){
+        var hay = ((r.order_id||'') + ' ' + (r.reseller_name||'')).toLowerCase();
+        return hay.indexOf(query) !== -1;
+      });
+    }
+
+    if(rows.length === 0){
+      html += '<div class="empty-state">' + (query ? 'No matches for that search.' : 'No slips printed yet.') + '</div>';
+      return html;
+    }
+
+    rows.forEach(function(r){
+      html += '<div class="order-card">';
+      html += '<div class="order-top"><span class="order-id">#' + esc(r.order_id||'\u2014') + '</span>';
+      html += '<span style="font-size:12px;color:#9aa0a6;">' + esc(r.reseller_name||'') + '</span></div>';
+      html += '<div style="font-size:13px;color:#e8eaed;margin-top:6px;">' + formatTime(r.printed_at) + '</div>';
+      html += '<div style="font-size:12px;color:#80868b;margin-top:2px;">' + (r.piece_count||1) + ' piece' + ((r.piece_count||1)!==1?'s':'') + ' \u00b7 printed by ' + esc(r.printed_by_email || 'staff') + '</div>';
+      html += '</div>';
+    });
+    return html;
+  }
+
+  function wirePrintHistoryTab(){
+    var search = document.getElementById('printHistorySearch');
+    if(search){
+      search.addEventListener('input', function(){
+        state.printLogQuery = search.value;
+        document.getElementById('tabContent').innerHTML = renderPrintHistoryTab();
+        wirePrintHistoryTab();
+        var refocused = document.getElementById('printHistorySearch');
+        if(refocused){ refocused.focus(); refocused.setSelectionRange(refocused.value.length, refocused.value.length); }
+      });
+    }
+  }
+
+  // ===== EDIT ORDER MODAL =====
+
+  function openEditOrderModal(orderId){
+    state.editOrderId = orderId;
+    state.editOrderPhotos = [];       // newly staged photos not yet uploaded
+    state.editOrderRemovedItemIds = []; // existing item ids marked for removal
+    state.editOrderProcessing = false;
+    state.editOrderSaving = false;
+    renderEditOrderModal();
+  }
+
+  function renderEditOrderModal(){
+    var ord = state.orders.find(function(o){ return o.id === state.editOrderId; });
+    if(!ord){ closeModal(); return; }
+    var visibleItems = (ord.items||[]).filter(function(it){ return state.editOrderRemovedItemIds.indexOf(it.id) === -1; });
+
+    var html = '<div class="modal-overlay" style="padding:12px;align-items:flex-start;"><div class="modal-box" style="max-width:480px;text-align:left;max-height:92vh;overflow-y:auto;margin-top:20px;">';
+    html += '<h3 style="margin:0 0 12px;">Edit Order #' + esc(ord.id) + '</h3>';
+    html += '<div class="field"><label>Reseller name</label><input type="text" id="editNameInput" list="resellerList" value="' + esc(ord.reseller_name||'') + '"></div>';
+    html += '<div class="field"><label>Courier</label><input type="text" id="editCourierInput" list="courierList" value="' + esc(ord.courier||'') + '"></div>';
+    html += '<div class="field"><label>Address</label><textarea id="editAddressInput" rows="4">' + esc(ord.address||'') + '</textarea></div>';
+
+    html += '<label style="display:block;margin-bottom:6px;">Pieces</label>';
+    html += '<div id="editItemsList">';
+    visibleItems.forEach(function(it){
+      html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">';
+      html += '<img src="' + (it.thumb_url || it.photo_url) + '" style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0;">';
+      html += '<input type="text" class="editItemShop" data-item-id="' + it.id + '" list="shopList" placeholder="Shop" value="' + esc(it.shop_name||'') + '" style="flex:1;min-width:0;">';
+      html += '<input type="text" class="editItemSize" data-item-id="' + it.id + '" list="sizeList" placeholder="Size" value="' + esc(it.size||'') + '" style="width:60px;">';
+      html += '<button class="btn-del editItemRemoveBtn" data-item-id="' + it.id + '" style="padding:6px 10px;">\u2715</button>';
+      html += '</div>';
+    });
+    state.editOrderPhotos.forEach(function(p, idx){
+      html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;background:rgba(129,201,149,0.08);border-radius:8px;padding:4px;">';
+      html += '<img src="' + p.previewUrl + '" style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0;">';
+      html += '<input type="text" class="editNewItemShop" data-idx="' + idx + '" list="shopList" placeholder="Shop" value="' + esc(p.shopVal||'') + '" style="flex:1;min-width:0;">';
+      html += '<input type="text" class="editNewItemSize" data-idx="' + idx + '" list="sizeList" placeholder="Size" value="' + esc(p.sizeVal||'') + '" style="width:60px;">';
+      html += '<button class="btn-del editNewItemRemoveBtn" data-idx="' + idx + '" style="padding:6px 10px;">\u2715</button>';
+      html += '</div>';
+    });
+    if(visibleItems.length === 0 && state.editOrderPhotos.length === 0){
+      html += '<p style="font-size:12.5px;color:#f28b82;">This order will have no pieces left. Add at least one photo, or delete the whole order instead.</p>';
+    }
+    html += '</div>';
+
+    html += '<button class="btn-add-photo" id="editAddPhotoBtn" style="margin-bottom:0;">' + (state.editOrderProcessing ? 'Processing\u2026' : '+ Add photo') + '</button>';
+    html += '<input type="file" id="editPhotoFileInput" accept="image/*" multiple style="display:none;">';
+
+    html += '<div class="modal-actions" style="margin-top:16px;">';
+    html += '<button id="editOrderCancelBtn" style="background:#fff;border:1px solid #e4ddd2;">Cancel</button>';
+    html += '<button id="editOrderSaveBtn" ' + (state.editOrderSaving?'disabled':'') + ' style="background:#d97a3f;color:#1a1207;border:none;">' + (state.editOrderSaving ? 'Saving\u2026' : 'Save Changes') + '</button>';
+    html += '</div></div></div>';
+
+    document.getElementById('modalHost').innerHTML = html;
+    wireEditOrderModal();
+  }
+
+  function wireEditOrderModal(){
+    document.getElementById('editOrderCancelBtn').addEventListener('click', closeModal);
+
+    document.querySelectorAll('.editItemRemoveBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        state.editOrderRemovedItemIds.push(parseInt(btn.getAttribute('data-item-id'), 10));
+        renderEditOrderModal();
+      });
+    });
+    document.querySelectorAll('.editNewItemRemoveBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var idx = parseInt(btn.getAttribute('data-idx'), 10);
+        state.editOrderPhotos.splice(idx, 1);
+        renderEditOrderModal();
+      });
+    });
+
+    document.getElementById('editAddPhotoBtn').addEventListener('click', function(){
+      document.getElementById('editPhotoFileInput').click();
+    });
+    document.getElementById('editPhotoFileInput').addEventListener('change', async function(e){
+      var files = Array.prototype.slice.call(e.target.files || []);
+      if(files.length === 0) return;
+      state.editOrderProcessing = true;
+      renderEditOrderModal();
+      try{
+        var blobs = await Promise.all(files.map(function(f){ return resizeImageToBlob(f, 900); }));
+        blobs.forEach(function(b){ state.editOrderPhotos.push({ blob: b, previewUrl: URL.createObjectURL(b), shopVal: '', sizeVal: '' }); });
+      }catch(err){
+        showToast('Could not process a photo: ' + (err && err.message ? err.message : 'unknown error'));
+      }
+      state.editOrderProcessing = false;
+      renderEditOrderModal();
+    });
+
+    document.getElementById('editOrderSaveBtn').addEventListener('click', saveEditOrder);
+  }
+
+  async function saveEditOrder(){
+    var orderId = state.editOrderId;
+    var ord = state.orders.find(function(o){ return o.id === orderId; });
+    if(!ord) return;
+
+    var name = (document.getElementById('editNameInput').value || '').trim();
+    var courier = (document.getElementById('editCourierInput').value || '').trim();
+    var address = (document.getElementById('editAddressInput').value || '').trim();
+    if(!name){ showToast('Reseller name is required'); return; }
+    if(!address){ showToast('Address is required'); return; }
+
+    var visibleItems = (ord.items||[]).filter(function(it){ return state.editOrderRemovedItemIds.indexOf(it.id) === -1; });
+    if(visibleItems.length === 0 && state.editOrderPhotos.length === 0){
+      showToast('An order needs at least one piece \u2014 delete the whole order instead if that\u2019s what you want');
+      return;
+    }
+
+    state.editOrderSaving = true;
+    renderEditOrderModal();
+
+    try{
+      // 1. Order-level fields
+      var { error: ordErr } = await sb.from('orders').update({ reseller_name: name, courier: courier, address: address }).eq('id', orderId);
+      if(ordErr) throw new Error(ordErr.message);
+
+      // 2. Shop/size on remaining existing items
+      var itemUpdatePromises = [];
+      document.querySelectorAll('.editItemShop').forEach(function(inp){
+        var itemId = parseInt(inp.getAttribute('data-item-id'), 10);
+        var sizeInp = document.querySelector('.editItemSize[data-item-id="' + itemId + '"]');
+        var shopVal = (inp.value || '').trim() || null;
+        var sizeVal = sizeInp ? ((sizeInp.value || '').trim() || null) : null;
+        itemUpdatePromises.push(
+          sb.from('order_items').update({ shop_name: shopVal, size: sizeVal }).eq('id', itemId)
+        );
+      });
+      await Promise.all(itemUpdatePromises);
+
+      // 3. Remove deleted items (+ best-effort storage cleanup)
+      if(state.editOrderRemovedItemIds.length){
+        var removedItems = (ord.items||[]).filter(function(it){ return state.editOrderRemovedItemIds.indexOf(it.id) !== -1; });
+        var { error: delErr } = await sb.from('order_items').delete().in('id', state.editOrderRemovedItemIds);
+        if(delErr) throw new Error(delErr.message);
+        try{
+          var paths = [];
+          removedItems.forEach(function(it){
+            var p1 = storagePathFromUrl(it.photo_url); if(p1) paths.push(p1);
+            var p2 = storagePathFromUrl(it.thumb_url); if(p2) paths.push(p2);
+          });
+          if(paths.length){ sb.storage.from('order-photos').remove(paths); }
+        }catch(e){ /* non-critical */ }
+      }
+
+      // 4. Upload and insert any newly added photos
+      var newItemsInserted = [];
+      if(state.editOrderPhotos.length){
+        var existingMaxIndex = (ord.items||[]).reduce(function(max, it){ return Math.max(max, it.item_index); }, -1);
+        var newShopVals = [], newSizeVals = [];
+        state.editOrderPhotos.forEach(function(p, idx){
+          var shopInp = document.querySelector('.editNewItemShop[data-idx="' + idx + '"]');
+          var sizeInp = document.querySelector('.editNewItemSize[data-idx="' + idx + '"]');
+          newShopVals.push(shopInp ? shopInp.value : '');
+          newSizeVals.push(sizeInp ? sizeInp.value : '');
+        });
+        var uploadResults = await Promise.all(state.editOrderPhotos.map(async function(p, idx){
+          var newIndex = existingMaxIndex + 1 + idx;
+          var pieceId = orderId + '-' + (newIndex + 1);
+          var stampedBlob = await drawWatermarkedBlob(p.blob, pieceId, newSizeVals[idx]);
+          var thumbBlob = await createThumbnailBlob(stampedBlob, 260);
+          var path = orderId + '/' + Date.now() + '_' + newIndex + '.jpg';
+          var thumbPath = orderId + '/' + Date.now() + '_' + newIndex + '_thumb.jpg';
+          var results = await Promise.all([
+            sb.storage.from('order-photos').upload(path, stampedBlob, { contentType: 'image/jpeg' }),
+            sb.storage.from('order-photos').upload(thumbPath, thumbBlob, { contentType: 'image/jpeg' })
+          ]);
+          if(results[0].error) throw new Error('Photo upload failed: ' + results[0].error.message);
+          if(results[1].error) throw new Error('Thumbnail upload failed: ' + results[1].error.message);
+          var { data: pub } = sb.storage.from('order-photos').getPublicUrl(path);
+          var { data: pubThumb } = sb.storage.from('order-photos').getPublicUrl(thumbPath);
+          return {
+            order_id: orderId, item_index: newIndex, photo_url: pub.publicUrl, thumb_url: pubThumb.publicUrl,
+            status: 'pending', shop_name: (newShopVals[idx]||'').trim() || null, size: (newSizeVals[idx]||'').trim() || null
+          };
+        }));
+        var { data: inserted, error: insErr } = await sb.from('order_items').insert(uploadResults).select();
+        if(insErr) throw new Error(insErr.message);
+        newItemsInserted = inserted || [];
+      }
+
+      // 5. Sync local state
+      ord.reseller_name = name;
+      ord.courier = courier;
+      ord.address = address;
+      ord.items = (ord.items||[])
+        .filter(function(it){ return state.editOrderRemovedItemIds.indexOf(it.id) === -1; })
+        .map(function(it){
+          var shopInp = document.querySelector('.editItemShop[data-item-id="' + it.id + '"]');
+          var sizeInp = document.querySelector('.editItemSize[data-item-id="' + it.id + '"]');
+          if(shopInp) it.shop_name = (shopInp.value||'').trim() || null;
+          if(sizeInp) it.size = (sizeInp.value||'').trim() || null;
+          return it;
+        })
+        .concat(newItemsInserted)
+        .sort(function(a,b){ return a.item_index - b.item_index; });
+
+      addToLocalList(state.resellers, name);
+      addToLocalList(state.couriers, courier);
+      ord.items.forEach(function(it){ addToLocalList(state.shops, it.shop_name); addToLocalList(state.sizes, it.size); });
+
+      state.editOrderSaving = false;
+      closeModal();
+      showToast('Order #' + orderId + ' updated');
+      render();
+    }catch(err){
+      state.editOrderSaving = false;
+      showToast('Could not save changes: ' + (err && err.message ? err.message : String(err)));
+      renderEditOrderModal();
+    }
   }
 
   function renderOrdersTab(){
@@ -2312,6 +2856,17 @@
 
   // ===== APP SHELL / RENDER =====
 
+  function refreshGlobalDatalists(){
+    var dl = document.getElementById('resellerList');
+    if(dl) dl.innerHTML = (state.resellers||[]).map(function(r){ return '<option value="' + esc(r) + '">'; }).join('');
+    var shopDl = document.getElementById('shopList');
+    if(shopDl) shopDl.innerHTML = (state.shops||[]).map(function(s){ return '<option value="' + esc(s) + '">'; }).join('');
+    var courierDl = document.getElementById('courierList');
+    if(courierDl) courierDl.innerHTML = (state.couriers||[]).map(function(c){ return '<option value="' + esc(c) + '">'; }).join('');
+    var sizeDl = document.getElementById('sizeList');
+    if(sizeDl) sizeDl.innerHTML = (state.sizes||[]).map(function(s){ return '<option value="' + esc(s) + '">'; }).join('');
+  }
+
   function render(){
     var appEl = document.getElementById('app');
     if(!state.session){
@@ -2319,6 +2874,7 @@
       wireLogin();
       return;
     }
+    refreshGlobalDatalists();
 
     var pendingCount = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; }).length;
 
@@ -2335,6 +2891,7 @@
     shellHtml += '<div class="sidebar-top-row"><button class="sidebar-close" id="sidebarCloseBtn">\u00d7</button></div>';
     shellHtml += '<div class="sidebar-identity"><div class="user-avatar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#f2a76a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 3.5-7 8-7s8 3 8 7"></path></svg></div><span>' + esc(currentUserLabel()) + '</span></div>';
     shellHtml += '<button id="manageListsBtn">Manage Lists</button>';
+    shellHtml += '<button id="printHistoryBtn">Print History</button>';
     shellHtml += '<button id="logoutBtn">Sign out</button>';
     shellHtml += '</div>';
 
@@ -2343,6 +2900,11 @@
     document.getElementById('manageListsBtn').addEventListener('click', function(){
       closeSidebar();
       openManageLists();
+    });
+    document.getElementById('printHistoryBtn').addEventListener('click', function(){
+      closeSidebar();
+      state.tab = 'printhistory';
+      render();
     });
     document.getElementById('tabBtnBook').addEventListener('click', function(){ state.tab='book'; render(); });
     document.getElementById('tabBtnOrders').addEventListener('click', function(){ state.tab='orders'; render(); });
@@ -2364,11 +2926,17 @@
     document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
 
     var content = document.getElementById('tabContent');
-    if(state.tab === 'book'){ prefetchOrderId(); content.innerHTML = renderBookTab(); wireBookTab(); }
-    else if(state.tab === 'orders'){ content.innerHTML = renderOrdersTab(); wireOrdersTab(); }
-    else if(state.tab === 'ship'){ content.innerHTML = renderShipTab(); wireShipTab(); }
-    else if(state.tab === 'shops'){ content.innerHTML = renderShopsTab(); wireShopsTab(); }
-    else if(state.tab === 'tracking'){ content.innerHTML = renderTrackingTab(); wireTrackingTab(); if(state.scanMode.active) focusScanInput(); }
+    try{
+      if(state.tab === 'book'){ prefetchOrderId(); content.innerHTML = renderBookTab(); wireBookTab(); }
+      else if(state.tab === 'orders'){ content.innerHTML = renderOrdersTab(); wireOrdersTab(); }
+      else if(state.tab === 'ship'){ content.innerHTML = renderShipTab(); wireShipTab(); }
+      else if(state.tab === 'shops'){ content.innerHTML = renderShopsTab(); wireShopsTab(); }
+      else if(state.tab === 'tracking'){ content.innerHTML = renderTrackingTab(); wireTrackingTab(); if(state.scanMode.active) focusScanInput(); }
+      else if(state.tab === 'printhistory'){ content.innerHTML = renderPrintHistoryTab(); wirePrintHistoryTab(); loadPrintHistoryIfNeeded(); }
+    }catch(e){
+      content.innerHTML = '<div class="empty-state" style="color:#f28b82;">Something went wrong showing this screen.<br><span style="font-size:11px;color:#9aa0a6;">' + esc(e && e.message ? e.message : String(e)) + '</span><br><br><button class="btn-secondary" onclick="window.location.reload()">Reload page</button></div>';
+      console.error('Render error on tab', state.tab, e);
+    }
   }
 
   initAuth();
