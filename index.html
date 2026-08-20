@@ -93,6 +93,13 @@
   .btn-whatsapp:disabled { opacity: 0.6; }
   .error-text { color: #f28b82; font-size: 14px; margin-bottom: 10px; word-break: break-word; }
   .searchbar { width: 100%; padding: 12px 16px; border-radius: 20px; border: 1px solid #3c4043; font-size: 16px; margin-bottom: 10px; background: #28292c; color: #e8eaed; }
+  .scan-mode-panel { border: 1.5px solid #d97a3f; border-radius: 12px; padding: 12px 14px; margin-bottom: 18px; background: rgba(217,122,63,0.08); }
+  .scan-mode-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .scan-mode-title { font-size: 14px; font-weight: 700; color: #f2a76a; }
+  .scan-mode-body { margin-top: 10px; }
+  .scan-mode-status { font-size: 13px; color: #e8eaed; margin: 0 0 8px; }
+  .scan-mode-selected-order { font-size: 13.5px; color: #81c995; background: rgba(129,201,149,0.1); padding: 6px 10px; border-radius: 8px; margin-bottom: 8px; }
+  #scanModeInput { width: 100%; padding: 14px 16px; border-radius: 10px; border: 2px solid #d97a3f; font-size: 17px; background: #131314; color: #e8eaed; }
   .filters { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
   .filter-chip { padding: 6px 14px; border-radius: 20px; font-size: 12.5px; cursor: pointer; border: 1px solid #3c4043; background: #202124; color: #9aa0a6; display: inline-block; }
   .filter-chip.active { background: #d97a3f; color: #1a1207; border-color: #d97a3f; font-weight: 600; }
@@ -161,6 +168,7 @@
   @page { margin: 0.4in; }
   .slip-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
   .slip-id { font-family: monospace; font-size: 17px; font-weight: 700; }
+  .slip-barcode { display: block; margin: 2px 0 4px; height: 40px; }
   .slip-size { font-size: 13px; color: #444; }
   .slip-time { font-size: 11px; color: #666; margin-bottom: 6px; }
   .slip-name { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
@@ -300,6 +308,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 <script>
 (function(){
 
@@ -328,6 +337,7 @@
     shopBookingQuery: '',
     trackingQuery: '',
     courierPrefixes: [],
+    scanMode: { active: false, stage: 'order', selectedOrderId: null, savedCount: 0 },
     couriers: [],
     sizes: [],
     manageListsTab: 'resellers',
@@ -775,9 +785,40 @@
     });
   }
 
+  // Extracts the storage path (e.g. "1023/167_0.jpg") from a Supabase public URL,
+  // needed to delete the actual file from the order-photos bucket.
+  function storagePathFromUrl(url){
+    if(!url) return null;
+    var marker = '/storage/v1/object/public/order-photos/';
+    var idx = url.indexOf(marker);
+    return idx === -1 ? null : url.slice(idx + marker.length);
+  }
+
   async function deleteOrder(id){
+    var ord = state.orders.find(function(o){ return o.id === id; });
+
+    // Delete child order_items first — required before the order row can go,
+    // since order_items.order_id references orders.id.
+    var { error: itemsErr } = await sb.from('order_items').delete().eq('order_id', id);
+    if(itemsErr){ showToast('Delete failed: ' + itemsErr.message); return; }
+
     var { error } = await sb.from('orders').delete().eq('id', id);
     if(error){ showToast('Delete failed: ' + error.message); return; }
+
+    // Best-effort cleanup of the actual photo files — order is already gone
+    // from the database at this point either way, so don't block on this.
+    try{
+      var paths = [];
+      if(ord){
+        (ord.items||[]).forEach(function(it){
+          var p1 = storagePathFromUrl(it.photo_url); if(p1) paths.push(p1);
+          var p2 = storagePathFromUrl(it.thumb_url); if(p2) paths.push(p2);
+        });
+        var pTrack = storagePathFromUrl(ord.tracking_photo_url); if(pTrack) paths.push(pTrack);
+      }
+      if(paths.length){ sb.storage.from('order-photos').remove(paths); }
+    }catch(e){ /* non-critical */ }
+
     state.orders = state.orders.filter(function(o){ return o.id !== id; });
     showToast('Order deleted');
     closeModal();
@@ -854,6 +895,7 @@
       slipsHtml += '<div class="print-slip">';
       slipsHtml += '<div class="slip-top"><span class="slip-id">Order #' + esc(ord.id) + '</span>';
       slipsHtml += '</div>';
+      slipsHtml += '<svg class="slip-barcode" id="barcode_' + esc(ord.id) + '"></svg>';
       slipsHtml += '<div class="slip-time">Booked: ' + formatTime(ord.created_at) + '</div>';
       if(prog.total > 1){
         slipsHtml += '<div class="slip-time">Shipping ' + shippingNow + ' of ' + prog.total + ' piece(s) in this order</div>';
@@ -864,6 +906,16 @@
     });
 
     document.getElementById('shipPrintArea').innerHTML = slipsHtml;
+    orderIds.forEach(function(orderId){
+      var ord = state.orders.find(function(o){ return o.id === orderId; });
+      if(!ord) return;
+      var el = document.getElementById('barcode_' + orderId);
+      if(el && window.JsBarcode){
+        try{
+          JsBarcode(el, ord.id, { format: 'CODE128', displayValue: false, height: 40, margin: 4, width: 2 });
+        }catch(e){ /* if barcode render fails, slip still prints fine without it */ }
+      }
+    });
     window.print();
     state.shipSelection = {};
     showToast('Marked shipped and sent to print');
@@ -1038,6 +1090,123 @@
     }catch(e){ /* non-critical, fail silently */ }
   }
 
+  // Shared save path used by both the manual tracking list and Scan Mode.
+  // Returns { ok: true } or { ok: false, message: '...' }.
+  async function saveTrackingForOrder(orderId, trackingVal, courierName){
+    var val = (trackingVal || '').trim();
+    if(!val) return { ok: false, message: 'Enter a tracking number' };
+    var patch = { tracking_number: val };
+    if(courierName){ patch.courier = courierName; }
+    var { error } = await sb.from('orders').update(patch).eq('id', orderId);
+    if(error) return { ok: false, message: error.message };
+    var ord = state.orders.find(function(o){ return o.id === orderId; });
+    if(ord){
+      ord.tracking_number = val;
+      if(courierName) ord.courier = courierName;
+    }
+    if(courierName){ learnCourierPrefix(val, courierName); }
+    return { ok: true };
+  }
+
+  function renderScanModePanel(){
+    var sm = state.scanMode;
+    var html = '<div class="scan-mode-panel">';
+    html += '<div class="scan-mode-header">';
+    html += '<span class="scan-mode-title">\u26a1 Scan Mode \u2014 barcode entry</span>';
+    html += '<button class="btn-secondary" id="scanModeToggleBtn">' + (sm.active ? 'Turn off' : 'Turn on') + '</button>';
+    html += '</div>';
+
+    if(!sm.active){
+      html += '<p style="font-size:12px;color:#9aa0a6;margin:8px 0 0;">Scan a printed order barcode, then scan the courier\u2019s tracking sticker \u2014 saves and moves to the next order automatically.</p>';
+      html += '</div>';
+      return html;
+    }
+
+    html += '<div class="scan-mode-body">';
+    if(sm.stage === 'order'){
+      html += '<p class="scan-mode-status">Scan the <b>order barcode</b> on the slip\u2026</p>';
+    }else{
+      var ord = state.orders.find(function(o){ return o.id === sm.selectedOrderId; });
+      html += '<div class="scan-mode-selected-order">Order <b>#' + esc(sm.selectedOrderId) + '</b>' + (ord ? ' \u2014 ' + esc(ord.reseller_name) : '') + '</div>';
+      html += '<p class="scan-mode-status">Now scan the <b>tracking sticker</b>\u2026</p>';
+    }
+    html += '<input type="text" id="scanModeInput" autocomplete="off" placeholder="' + (sm.stage==='order' ? 'Scan order barcode' : 'Scan tracking sticker') + '">';
+
+    if(sm.pendingTrackingVal){
+      var detected = detectCourierFromTracking(sm.pendingTrackingVal);
+      html += '<div class="courier-detect-row" style="display:flex;margin-top:8px;">';
+      html += '<span style="font-size:12px;color:#fdd663;">Not recognized \u2014 pick courier for ' + esc(sm.pendingTrackingVal) + ':</span>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:8px;margin-top:6px;">';
+      html += '<select id="scanCourierPick" style="flex:1;font-size:12.5px;padding:6px 8px;border-radius:8px;background:#28292c;color:#e8eaed;border:1px solid #3c4043;">';
+      html += '<option value="">Pick courier\u2026</option>';
+      (state.couriers||[]).forEach(function(c){ html += '<option value="' + esc(c) + '">' + esc(c) + '</option>'; });
+      html += '</select>';
+      html += '<button class="btn-secondary" id="scanCourierConfirmBtn">Confirm & Save</button>';
+      html += '</div>';
+    }
+
+    if(sm.stage === 'tracking'){
+      html += '<button class="btn-secondary" id="scanModeCancelBtn" style="margin-top:10px;">Cancel \u2014 pick different order</button>';
+    }
+    html += '<p style="font-size:12px;color:#80868b;margin-top:10px;">Saved this session: <b>' + sm.savedCount + '</b></p>';
+    html += '</div></div>';
+    return html;
+  }
+
+  function focusScanInput(){
+    var inp = document.getElementById('scanModeInput');
+    if(inp){ inp.focus(); }
+  }
+
+  async function processScanValue(raw){
+    var val = (raw || '').trim();
+    if(!val) return;
+    var sm = state.scanMode;
+
+    // If the scanned value matches an existing order id exactly, treat it as
+    // selecting/switching to that order — regardless of current stage.
+    var matchedOrder = state.orders.find(function(o){ return o.id.toLowerCase() === val.toLowerCase(); });
+    if(matchedOrder){
+      if(matchedOrder.tracking_number){
+        showToast('Order #' + matchedOrder.id + ' already has tracking ' + matchedOrder.tracking_number + ' \u2014 scan a new one to replace it');
+      }
+      sm.selectedOrderId = matchedOrder.id;
+      sm.stage = 'tracking';
+      sm.pendingTrackingVal = null;
+      renderScanModeOnly();
+      return;
+    }
+
+    if(sm.stage !== 'tracking' || !sm.selectedOrderId){
+      showToast('Order #' + val + ' not found \u2014 scan the order barcode first');
+      renderScanModeOnly();
+      return;
+    }
+
+    var detected = detectCourierFromTracking(val);
+    if(detected){
+      var result = await saveTrackingForOrder(sm.selectedOrderId, val, detected);
+      if(!result.ok){ showToast('Could not save: ' + result.message); renderScanModeOnly(); return; }
+      sm.savedCount++;
+      showToast('#' + sm.selectedOrderId + ' \u2192 ' + detected + ' saved');
+      sm.stage = 'order';
+      sm.selectedOrderId = null;
+      sm.pendingTrackingVal = null;
+      render();
+    }else{
+      sm.pendingTrackingVal = val;
+      renderScanModeOnly();
+    }
+  }
+
+  function renderScanModeOnly(){
+    if(state.tab !== 'tracking') return;
+    document.getElementById('tabContent').innerHTML = renderTrackingTab();
+    wireTrackingTab();
+    focusScanInput();
+  }
+
   function renderTrackingTab(){
     var html = '';
     var query = (state.trackingQuery || '').trim().toLowerCase();
@@ -1048,6 +1217,8 @@
     html += '<input type="file" id="parcelFileInput" accept="image/*" multiple style="display:none;">';
     html += '<div class="field-hint">Include the printed order ID clearly in the photo for best results.</div>';
     html += '</div>';
+
+    html += renderScanModePanel();
 
     html += '<input class="searchbar" type="text" id="trackingSearchInput" autocomplete="off" placeholder="Search order id, reseller, or tracking number" value="' + esc(state.trackingQuery || '') + '">';
 
@@ -1145,6 +1316,58 @@
   }
 
   function wireTrackingTab(){
+    var scanToggleBtn = document.getElementById('scanModeToggleBtn');
+    if(scanToggleBtn){
+      scanToggleBtn.addEventListener('click', function(){
+        var sm = state.scanMode;
+        sm.active = !sm.active;
+        sm.stage = 'order';
+        sm.selectedOrderId = null;
+        sm.pendingTrackingVal = null;
+        document.getElementById('tabContent').innerHTML = renderTrackingTab();
+        wireTrackingTab();
+        focusScanInput();
+      });
+    }
+    var scanInput = document.getElementById('scanModeInput');
+    if(scanInput){
+      scanInput.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          var val = scanInput.value;
+          scanInput.value = '';
+          processScanValue(val);
+        }
+      });
+    }
+    var scanCancelBtn = document.getElementById('scanModeCancelBtn');
+    if(scanCancelBtn){
+      scanCancelBtn.addEventListener('click', function(){
+        var sm = state.scanMode;
+        sm.stage = 'order';
+        sm.selectedOrderId = null;
+        sm.pendingTrackingVal = null;
+        renderScanModeOnly();
+      });
+    }
+    var scanConfirmBtn = document.getElementById('scanCourierConfirmBtn');
+    if(scanConfirmBtn){
+      scanConfirmBtn.addEventListener('click', async function(){
+        var sm = state.scanMode;
+        var pick = document.getElementById('scanCourierPick');
+        var courierName = pick ? pick.value : '';
+        if(!courierName){ showToast('Pick a courier first'); return; }
+        var result = await saveTrackingForOrder(sm.selectedOrderId, sm.pendingTrackingVal, courierName);
+        if(!result.ok){ showToast('Could not save: ' + result.message); return; }
+        sm.savedCount++;
+        showToast('#' + sm.selectedOrderId + ' \u2192 ' + courierName + ' saved');
+        sm.stage = 'order';
+        sm.selectedOrderId = null;
+        sm.pendingTrackingVal = null;
+        render();
+      });
+    }
+
     var trackingSearch = document.getElementById('trackingSearchInput');
     if(trackingSearch){
       trackingSearch.addEventListener('input', function(){
@@ -1201,19 +1424,9 @@
         var orderId = btn.getAttribute('data-order');
         var input = document.querySelector('.trackingNumInput[data-order="' + orderId + '"]');
         var select = document.querySelector('.courierDetectSelect[data-order="' + orderId + '"]');
-        var val = (input.value || '').trim();
-        if(!val){ showToast('Enter a tracking number'); return; }
         var chosenCourier = select ? select.value : '';
-        var patch = { tracking_number: val };
-        if(chosenCourier){ patch.courier = chosenCourier; }
-        var { error } = await sb.from('orders').update(patch).eq('id', orderId);
-        if(error){ showToast('Could not save: ' + error.message); return; }
-        var ord = state.orders.find(function(o){ return o.id === orderId; });
-        if(ord){
-          ord.tracking_number = val;
-          if(chosenCourier) ord.courier = chosenCourier;
-        }
-        if(chosenCourier){ learnCourierPrefix(val, chosenCourier); }
+        var result = await saveTrackingForOrder(orderId, input.value, chosenCourier);
+        if(!result.ok){ showToast('Could not save: ' + result.message); return; }
         showToast(chosenCourier ? 'Tracking number saved (' + chosenCourier + ')' : 'Tracking number saved');
         render();
       });
@@ -2155,7 +2368,7 @@
     else if(state.tab === 'orders'){ content.innerHTML = renderOrdersTab(); wireOrdersTab(); }
     else if(state.tab === 'ship'){ content.innerHTML = renderShipTab(); wireShipTab(); }
     else if(state.tab === 'shops'){ content.innerHTML = renderShopsTab(); wireShopsTab(); }
-    else if(state.tab === 'tracking'){ content.innerHTML = renderTrackingTab(); wireTrackingTab(); }
+    else if(state.tab === 'tracking'){ content.innerHTML = renderTrackingTab(); wireTrackingTab(); if(state.scanMode.active) focusScanInput(); }
   }
 
   initAuth();
