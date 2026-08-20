@@ -1861,6 +1861,50 @@
     ord.tracking_photo_url = pub.publicUrl;
   }
 
+  // Direct tracking links, only for couriers where the URL format is
+  // actually confirmed to work — number goes straight in, no typing needed.
+  var COURIER_DIRECT_TRACK_URL = {
+    'delhivery': function(t){ return 'https://www.delhivery.com/track/package/' + encodeURIComponent(t); },
+    'ekart': function(t){ return 'https://www.ekartlogistics.com/shipmenttrack/' + encodeURIComponent(t); }
+  };
+  // Official tracking pages for couriers whose sites require typing the
+  // number in manually + solving a CAPTCHA — no way to pre-fill it, but this
+  // at least sends the client straight to the correct official page instead
+  // of a generic search. The tracking number is already in the message text
+  // right above the link, ready to copy.
+  var COURIER_PAGE_ONLY_URL = {
+    'bluedart': 'https://www.bluedart.com/track-trace',
+    'dtdc': 'https://www.dtdc.com/track-your-shipment/',
+    'india post': 'https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx',
+    'tirupati': 'https://www.shreetirupaticourier.net/',
+    'franch express': 'https://franchexpress.com/courier-tracking/'
+  };
+  // Matches by substring, not exact equality — real courier names in this
+  // app include extra detail staff added themselves (e.g. "Delhivery (5-7
+  // Days For Delivery)"), so an exact match would never fire.
+  function getTrackingLink(courier, trackingNumber){
+    var courierLower = (courier || '').trim().toLowerCase();
+    for(var key in COURIER_DIRECT_TRACK_URL){
+      if(courierLower.indexOf(key) !== -1) return COURIER_DIRECT_TRACK_URL[key](trackingNumber);
+    }
+    for(var key2 in COURIER_PAGE_ONLY_URL){
+      if(courierLower.indexOf(key2) !== -1) return COURIER_PAGE_ONLY_URL[key2];
+    }
+    return 'https://www.google.com/search?q=' + encodeURIComponent('track ' + (courier||'') + ' ' + trackingNumber);
+  }
+
+  function buildTrackingShareText(o){
+    var lines = ['Order #' + o.id];
+    if(o.tracking_number){
+      lines.push('Tracking: ' + o.tracking_number + (o.courier ? ' (' + o.courier + ')' : ''));
+      lines.push('Track here: ' + getTrackingLink(o.courier, o.tracking_number));
+    }else{
+      lines.push('Tracking number coming soon');
+    }
+    if(o.address) lines.push('Address: ' + o.address);
+    return lines.join('\n');
+  }
+
   async function shareTrackingToWhatsApp(reseller, btn){
     var orders = state.orders.filter(function(o){ return o.reseller_name === reseller && (o.tracking_photo_url || o.tracking_number) && !o.tracking_shared_at; });
     if(orders.length === 0) return;
@@ -1874,11 +1918,7 @@
     var originalText = btn ? btn.textContent : '';
     if(btn){ btn.disabled = true; btn.textContent = 'Preparing...'; }
 
-    var textLines = ['Tracking updates:'];
-    batch.forEach(function(o){
-      textLines.push('#' + o.id + (o.tracking_number ? ' \u2014 ' + o.tracking_number : ' \u2014 tracking number coming soon'));
-    });
-    var messageText = textLines.join('\n');
+    var messageText = batch.map(buildTrackingShareText).join('\n\n');
 
     try{
       var withPhoto = batch.filter(function(o){ return o.tracking_photo_url; });
@@ -1902,6 +1942,45 @@
         // user cancelled the share sheet
       }else{
         showToast('Could not prepare photos: ' + (err && err.message ? err.message : 'try again'));
+      }
+    }
+    if(btn){ btn.disabled = false; btn.textContent = originalText; }
+  }
+
+  // Share a single order's tracking anytime, from Orders List — including
+  // re-sharing one that was already sent before (customer asking again, etc).
+  async function shareOneOrderTracking(order, btn){
+    if(!navigator.share){
+      showToast('Sharing isn\u2019t supported on this browser \u2014 try on your phone');
+      return;
+    }
+    var originalText = btn ? btn.textContent : '';
+    if(btn){ btn.disabled = true; btn.textContent = 'Preparing...'; }
+
+    var messageText = buildTrackingShareText(order);
+
+    try{
+      var shareData = { text: messageText };
+      if(order.tracking_photo_url){
+        try{
+          var res = await fetch(order.tracking_photo_url);
+          var blob = await res.blob();
+          var file = new File([blob], 'tracking_' + order.id + '.jpg', { type: 'image/jpeg' });
+          if(!navigator.canShare || navigator.canShare({ files: [file] })){
+            shareData.files = [file];
+          }
+        }catch(e){ /* photo optional — still share the text either way */ }
+      }
+      await navigator.share(shareData);
+      var nowIso = new Date().toISOString();
+      order.tracking_shared_at = nowIso;
+      showToast('Tracking shared for #' + order.id);
+      sb.from('orders').update({ tracking_shared_at: nowIso }).eq('id', order.id).then(function(res){
+        if(res.error){ showToast('Warning: could not save shared status: ' + res.error.message); }
+      });
+    }catch(err){
+      if(!(err && err.name === 'AbortError')){
+        showToast('Could not share: ' + (err && err.message ? err.message : 'try again'));
       }
     }
     if(btn){ btn.disabled = false; btn.textContent = originalText; }
@@ -2158,7 +2237,7 @@
       try{
         var slice = files.slice(0, 50 - state.bookPhotos.length);
         var blobs = await Promise.all(slice.map(function(f){ return resizeImageToBlob(f, 900); }));
-        var withPreview = blobs.map(function(b){ return { blob: b, previewUrl: URL.createObjectURL(b), shopVal: 'Shop Name Pending', sizeVal: '' }; });
+        var withPreview = blobs.map(function(b){ return { blob: b, previewUrl: URL.createObjectURL(b), shopVal: '', sizeVal: '' }; });
         state.bookPhotos = state.bookPhotos.concat(withPreview).slice(0,50);
       }catch(err){
         state.bookError = 'Could not process a photo: ' + (err && err.message ? err.message : 'unknown error');
@@ -2285,7 +2364,7 @@
         if(!(p.shopVal||'').trim()){ badShop = { idx: i, val: '(empty)' }; }
         else if(!isExactListMatch(p.shopVal, state.shops)){ badShop = { idx: i, val: p.shopVal }; }
       });
-      if(badShop){ state.bookError = 'Pick a shop for photo ' + (badShop.idx+1) + ' \u2014 use "Shop Name Pending" if you don\u2019t know it yet'; render(); return; }
+      if(badShop){ state.bookError = 'Pick a shop for photo ' + (badShop.idx+1) + ' \u2014 use "Name Pending" if you don\u2019t know it yet'; render(); return; }
       if(!address){ state.bookError = 'Enter delivery address'; render(); return; }
       state.bookError = '';
       state.saving = true;
@@ -2374,6 +2453,9 @@
         if(ds !== 'pending'){ html += '<button class="btn-unship" data-unship="' + o.id + '">Mark all pending</button>'; }
         html += '<button class="btn-cancel" data-cancel="' + o.id + '">Cancel</button>';
       }
+      if(o.tracking_number){
+        html += '<button class="btn-secondary shareOneTrackingBtn" data-order="' + o.id + '">\ud83d\udce4 Share tracking</button>';
+      }
       html += '<button class="btn-edit" data-edit="' + o.id + '">\u270f\ufe0f</button>';
       html += '<button class="btn-del" data-del="' + o.id + '">\ud83d\uddd1</button>';
       html += '</div></div>';
@@ -2401,6 +2483,12 @@
       btn.addEventListener('click', function(e){
         e.stopPropagation();
         revertSingleItemToPending(parseInt(btn.getAttribute('data-revert-item'), 10));
+      });
+    });
+    document.querySelectorAll('.shareOneTrackingBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var ord = state.orders.find(function(o){ return o.id === btn.getAttribute('data-order'); });
+        if(ord) shareOneOrderTracking(ord, btn);
       });
     });
     document.querySelectorAll('[data-cancel]').forEach(function(btn){
@@ -2510,7 +2598,7 @@
     visibleItems.forEach(function(it){
       html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">';
       html += '<img src="' + (it.thumb_url || it.photo_url) + '" style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0;">';
-      html += '<input type="text" class="editItemShop" data-item-id="' + it.id + '" list="shopList" autocomplete="off" placeholder="Shop" value="' + esc(it.shop_name||'Shop Name Pending') + '" style="flex:1;min-width:0;">';
+      html += '<input type="text" class="editItemShop" data-item-id="' + it.id + '" list="shopList" autocomplete="off" placeholder="Shop" value="' + esc(it.shop_name||'Name Pending') + '" style="flex:1;min-width:0;">';
       html += '<input type="text" class="editItemSize" data-item-id="' + it.id + '" list="sizeList" placeholder="Size" value="' + esc(it.size||'') + '" style="width:60px;">';
       html += '<button class="btn-del editItemRemoveBtn" data-item-id="' + it.id + '" style="padding:6px 10px;">\u2715</button>';
       html += '</div>';
@@ -2567,7 +2655,7 @@
       renderEditOrderModal();
       try{
         var blobs = await Promise.all(files.map(function(f){ return resizeImageToBlob(f, 900); }));
-        blobs.forEach(function(b){ state.editOrderPhotos.push({ blob: b, previewUrl: URL.createObjectURL(b), shopVal: 'Shop Name Pending', sizeVal: '' }); });
+        blobs.forEach(function(b){ state.editOrderPhotos.push({ blob: b, previewUrl: URL.createObjectURL(b), shopVal: '', sizeVal: '' }); });
       }catch(err){
         showToast('Could not process a photo: ' + (err && err.message ? err.message : 'unknown error'));
       }
@@ -2603,7 +2691,7 @@
       if(!(inp.value||'').trim()){ badShop = '(empty)'; }
       else if(!isExactListMatch(inp.value, state.shops)){ badShop = inp.value; }
     });
-    if(badShop){ showToast('Every piece needs a shop \u2014 use "Shop Name Pending" if you don\u2019t know it yet'); return; }
+    if(badShop){ showToast('Every piece needs a shop \u2014 use "Name Pending" if you don\u2019t know it yet'); return; }
     if(!address){ showToast('Address is required'); return; }
 
     var visibleItems = (ord.items||[]).filter(function(it){ return state.editOrderRemovedItemIds.indexOf(it.id) === -1; });
@@ -2887,7 +2975,7 @@
 
   // Pieces that were booked without a shop picked yet — invisible to the
   // normal by-shop grouping below since there's no shop_name to group by.
-  var SHOP_PENDING_LABEL = 'Shop Name Pending';
+  var SHOP_PENDING_LABEL = 'Name Pending';
 
   function getItemsNeedingShop(){
     var results = [];
