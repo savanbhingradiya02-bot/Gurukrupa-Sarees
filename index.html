@@ -906,6 +906,20 @@
     });
     if(!item) return;
 
+    if(ord && ord.tracking_number){
+      openTrackingPendingWarning(function(){ doRevertSingleItemToPending(itemId); });
+      return;
+    }
+    doRevertSingleItemToPending(itemId);
+  }
+
+  function doRevertSingleItemToPending(itemId){
+    var item = null;
+    state.orders.forEach(function(o){
+      (o.items||[]).forEach(function(it){ if(it.id === itemId){ item = it; } });
+    });
+    if(!item) return;
+
     item.status = 'pending';
     item.shipped_at = null;
     item.shipped_by = null;
@@ -920,7 +934,37 @@
     });
   }
 
+  // Shown before marking anything pending that already has a tracking number
+  // on file — this exact gap (tracking info left stale on a reverted order,
+  // still showing "Share tracking" while sitting in Ship Album) caused real
+  // confusion, so now it's an explicit choice instead of a silent side effect.
+  function openTrackingPendingWarning(onConfirm){
+    document.getElementById('modalHost').innerHTML =
+      '<div class="modal-overlay"><div class="modal-box">' +
+        '<p style="font-size:14px;margin:0 0 6px;font-weight:700;">This order already has a tracking number</p>' +
+        '<p style="font-size:12.5px;color:#9aa0a6;margin:0;">Marking it pending won\u2019t clear the tracking number \u2014 it\u2019ll stay attached until you add a new one or remove it. Continue?</p>' +
+        '<div class="modal-actions">' +
+          '<button id="trackWarnCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button>' +
+          '<button id="trackWarnContinueBtn" style="background:#f2a76a;color:#1a1207;border:none;">Yes, mark pending</button>' +
+        '</div></div></div>';
+    document.getElementById('trackWarnCancelBtn').addEventListener('click', closeModal);
+    document.getElementById('trackWarnContinueBtn').addEventListener('click', function(){
+      closeModal();
+      onConfirm();
+    });
+  }
+
   async function bulkUpdateOrderItems(orderId, status){
+    var ord = state.orders.find(function(o){ return o.id === orderId; });
+    if(!ord) return;
+    if(status === 'pending' && ord.tracking_number){
+      openTrackingPendingWarning(function(){ doBulkUpdateOrderItems(orderId, status); });
+      return;
+    }
+    doBulkUpdateOrderItems(orderId, status);
+  }
+
+  async function doBulkUpdateOrderItems(orderId, status){
     var ord = state.orders.find(function(o){ return o.id === orderId; });
     if(!ord) return;
     var patch = { status: status };
@@ -1460,7 +1504,7 @@
     html += '<label>Scan parcel photos (slip + tracking sticker)</label>';
     html += '<button class="btn-add-photo" id="scanParcelBtn" style="margin-bottom:0;" ' + (state.trackingOcrProcessing?'disabled':'') + '>' + (state.trackingOcrProcessing ? '<span class="spinner-sm"></span>Reading photos\u2026' : '+ Upload parcel photos') + '</button>';
     html += '<input type="file" id="parcelFileInput" accept="image/*" multiple style="display:none;">';
-    html += '<div class="field-hint">Include the printed order ID clearly in the photo for best results.</div>';
+    html += '<div class="field-hint">Take one clear photo of the packed parcel showing the <b>printed order ID slip</b> and the <b>courier tracking sticker</b>. Order, tracking number &amp; courier are read automatically \u2014 works on iPhone (Safari) and Android (Chrome). First scan takes a little longer while the reader downloads.</div>';
     html += '</div>';
 
     html += renderScanModePanel();
@@ -1727,10 +1771,21 @@
         var orderId = (input.value || '').trim();
         var ord = state.orders.find(function(o){ return o.id === orderId; });
         if(!ord){ showToast('No order with that ID'); return; }
-        await attachTrackingPhoto(ord, state.trackingUnmatched[idx].blob);
+        var entry = state.trackingUnmatched[idx];
+        await attachTrackingPhoto(ord, entry.blob);
+        // The photo's OCR text was kept — the tracking sticker may still be
+        // readable even though the order ID wasn't.
+        var trk = findTrackingInText(entry.ocrText);
+        var savedTrk = null;
+        if(trk && trk.value !== ord.tracking_number){
+          var trkRes = await saveTrackingForOrder(ord.id, trk.value, trk.courier);
+          if(trkRes.ok){ savedTrk = trk; }
+        }else if(trk){
+          savedTrk = trk;
+        }
         state.trackingUnmatched.splice(idx, 1);
-        showToast('Attached to order #' + orderId);
         render();
+        openPackedShippedConfirm([{ orderId: ord.id, tracking: savedTrk ? savedTrk.value : null, courier: savedTrk ? savedTrk.courier : null }]);
       });
     });
     document.querySelectorAll('.unmatchedOrderSearch').forEach(function(inp){
@@ -1823,6 +1878,7 @@
     state.trackingOcrProcessing = true;
     render();
 
+    var matchedResults = [];
     for(var i=0;i<files.length;i++){
       try{
         var resizedBlob = await resizeImageToBlob(files[i], 1000);
@@ -1832,8 +1888,19 @@
         var matchedOrder = match ? state.orders.find(function(o){ return o.id === match; }) : null;
         if(matchedOrder){
           await attachTrackingPhoto(matchedOrder, resizedBlob);
+          // Same photo also shows the courier sticker — read the tracking
+          // number from it and save it in the same step.
+          var trk = findTrackingInText(text);
+          var savedTrk = null;
+          if(trk && trk.value !== matchedOrder.tracking_number){
+            var trkRes = await saveTrackingForOrder(matchedOrder.id, trk.value, trk.courier);
+            if(trkRes.ok){ savedTrk = trk; }
+          }else if(trk){
+            savedTrk = trk; // already saved earlier — still show it in the summary
+          }
+          matchedResults.push({ orderId: matchedOrder.id, tracking: savedTrk ? savedTrk.value : null, courier: savedTrk ? savedTrk.courier : null });
         }else{
-          state.trackingUnmatched.push({ blob: resizedBlob, previewUrl: URL.createObjectURL(resizedBlob) });
+          state.trackingUnmatched.push({ blob: resizedBlob, previewUrl: URL.createObjectURL(resizedBlob), ocrText: text });
         }
       }catch(err){
         showToast('Could not read a photo: ' + (err && err.message ? err.message : 'try again'));
@@ -1842,7 +1909,53 @@
 
     state.trackingOcrProcessing = false;
     render();
-    showToast('Finished scanning ' + files.length + ' photo' + (files.length!==1?'s':''));
+    if(matchedResults.length){
+      openPackedShippedConfirm(matchedResults);
+    }else{
+      showToast('Finished scanning ' + files.length + ' photo' + (files.length!==1?'s':''));
+    }
+  }
+
+  // After packing photos are matched: one confirmation that marks those
+  // orders shipped. The parcel is literally packed and stickered at this
+  // point, so "shipped" is almost always the truth — but staff confirms.
+  function openPackedShippedConfirm(results){
+    var toShip = results.filter(function(r){
+      var o = state.orders.find(function(x){ return x.id === r.orderId; });
+      return o && o.status !== 'cancelled' && orderDisplayStatus(o) !== 'shipped';
+    });
+    var rows = results.map(function(r){
+      var line = '#' + esc(r.orderId) + ' \u2014 ' + (r.tracking ? esc(r.tracking) + (r.courier ? ' (' + esc(r.courier) + ')' : '') : 'photo saved, tracking not readable \u2014 add it manually');
+      return '<div style="font-size:12.5px;color:#e8eaed;padding:4px 0;border-bottom:1px solid #28292c;">' + line + '</div>';
+    }).join('');
+    var html =
+      '<div class="modal-overlay"><div class="modal-box">' +
+        '<p style="font-size:14px;margin:0 0 6px;font-weight:700;">Packing photo' + (results.length!==1?'s':'') + ' saved</p>' +
+        '<div style="margin:0 0 10px;">' + rows + '</div>';
+    if(toShip.length){
+      html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0;">Mark ' + (toShip.length===1 ? 'order #' + esc(toShip[0].orderId) : 'these ' + toShip.length + ' orders') + ' as shipped now?</p>' +
+        '<div class="modal-actions">' +
+          '<button id="packedShipLaterBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Not yet</button>' +
+          '<button id="packedShipYesBtn" style="background:#8ab4f8;color:#0b1526;border:none;">Yes \u2014 mark shipped</button>' +
+        '</div>';
+    }else{
+      html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0;">Already marked shipped.</p>' +
+        '<div class="modal-actions">' +
+          '<button id="packedShipLaterBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Close</button>' +
+        '</div>';
+    }
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    document.getElementById('packedShipLaterBtn').addEventListener('click', closeModal);
+    var yesBtn = document.getElementById('packedShipYesBtn');
+    if(yesBtn){
+      yesBtn.addEventListener('click', async function(){
+        closeModal();
+        for(var i=0;i<toShip.length;i++){
+          await doBulkUpdateOrderItems(toShip[i].orderId, 'shipped');
+        }
+      });
+    }
   }
 
   function findOrderIdInText(text){
@@ -1853,6 +1966,42 @@
       return state.orders.some(function(o){ return o.id === c; });
     })));
     return validIds.length === 1 ? validIds[0] : null;
+  }
+
+  // Pulls a courier tracking number out of the OCR text of a packed-parcel
+  // photo. Only accepts values that start with a prefix we already know from
+  // courier_prefixes — that's what keeps phone numbers, pincodes and other
+  // digits on the label from being mistaken for a tracking number.
+  function findTrackingInText(text){
+    if(!text) return null;
+    var upper = text.toUpperCase();
+    var candidates = (upper.match(/[A-Z0-9]{7,20}/g) || []).slice();
+    // Stickers often print the number with gaps ("WNAP 0000 0582 11") and
+    // OCR keeps those gaps — collapse each printed line and scan again.
+    upper.split('\n').forEach(function(line){
+      var collapsed = line.replace(/[\s\-.]+/g, '');
+      var m = collapsed.match(/[A-Z0-9]{8,20}/g);
+      if(m){ candidates = candidates.concat(m); }
+    });
+    var rules = (state.courierPrefixes || []).slice().sort(function(a,b){
+      return b.prefix.length - a.prefix.length;
+    });
+    var best = null;
+    for(var i=0;i<rules.length;i++){
+      var pfx = rules[i].prefix.toUpperCase();
+      for(var j=0;j<candidates.length;j++){
+        var c = candidates[j];
+        // Must start with the prefix, be a realistic tracking length, be
+        // longer than the prefix itself (a bare prefix is noise), and not
+        // contain a long letter run (that's a glued-together word, not a
+        // tracking number — real ones top out at 4-letter prefixes).
+        if(c.indexOf(pfx) === 0 && c.length >= 8 && c.length <= 18 && c.length > pfx.length + 3 && !/[A-Z]{5,}/.test(c)){
+          if(!best || c.length > best.value.length){ best = { value: c, courier: rules[i].courier_name }; }
+        }
+      }
+      if(best) break; // longest-prefix rule wins outright
+    }
+    return best;
   }
 
   async function attachTrackingPhoto(ord, blob){
@@ -2466,7 +2615,7 @@
         if(ds !== 'pending'){ html += '<button class="btn-unship" data-unship="' + o.id + '">Mark all pending</button>'; }
         html += '<button class="btn-cancel" data-cancel="' + o.id + '">Cancel</button>';
       }
-      if(o.tracking_number){
+      if(o.tracking_number && (ds === 'shipped' || ds === 'partial')){
         html += '<button class="btn-secondary shareOneTrackingBtn" data-order="' + o.id + '">\ud83d\udce4 Share tracking</button>';
       }
       html += '<button class="btn-edit" data-edit="' + o.id + '">\u270f\ufe0f</button>';
