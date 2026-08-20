@@ -118,10 +118,12 @@
     box-shadow: 0 2px 6px rgba(224,92,92,0.6), 0 0 0 2px #131314;
   }
   label { font-size: 14.5px; color: #9aa0a6; display: block; margin-bottom: 6px; font-weight: 500; }
-  input[type=text], input[type=email], input[type=password], textarea {
+  input[type=text], input[type=email], input[type=password], textarea, select {
     width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid #3c4043;
     font-size: 16px; font-family: inherit; background: #28292c; color: #e8eaed;
   }
+  select { cursor: pointer; }
+  select:invalid { color: #80868b; }
   input::placeholder, textarea::placeholder { color: #80868b; }
   textarea { resize: vertical; }
   .field { margin-bottom: 14px; }
@@ -147,6 +149,7 @@
   .btn-primary { width: 100%; padding: 15px; border-radius: 10px; border: none; background: #d97a3f; color: #1a1207; font-size: 16px; font-weight: 700; cursor: pointer; }
   .btn-primary:disabled { opacity: 0.5; }
   .btn-secondary { padding: 10px 16px; border-radius: 10px; border: 1px solid #3c4043; background: #202124; font-size: 14px; font-weight: 600; cursor: pointer; color: #9aa0a6; }
+  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-whatsapp { padding: 9px 14px; border-radius: 10px; border: none; background: #25d366; font-size: 12.5px; font-weight: 700; cursor: pointer; color: #06210f; }
   .btn-whatsapp:disabled { opacity: 0.6; }
   .error-text { color: #f28b82; font-size: 14px; margin-bottom: 10px; word-break: break-word; }
@@ -444,6 +447,18 @@
     }
   }
 
+  // True if val is blank (fine for optional fields) or exactly matches an
+  // entry in list (case-insensitive). Used to block saving a typed value
+  // like "1191" that never resolved to a real predefined entry — the field
+  // must end up EXACTLY equal to something already in Manage Lists, not
+  // just close to it.
+  function isExactListMatch(val, list){
+    var v = (val || '').trim();
+    if(!v) return true;
+    var lower = v.toLowerCase();
+    return (list||[]).some(function(s){ return s.toLowerCase() === lower; });
+  }
+
   function highlightText(text, query){
     var str = text == null ? '' : String(text);
     if(!query || !query.trim()) return esc(str);
@@ -664,6 +679,7 @@
   }
 
   async function logout(){
+    stopShopReminder();
     await sb.auth.signOut();
     state.session = null;
     state.orders = [];
@@ -674,6 +690,7 @@
 
   var loadOrdersInFlight = false;
   var lastRenderedTab = null;
+  var shopReminderIntervalId = null;
   async function loadOrders(){
     if(loadOrdersInFlight) return; // prevent duplicate concurrent loads (page load + SIGNED_IN event both fire)
     loadOrdersInFlight = true;
@@ -778,6 +795,7 @@
     state.loading = false;
     loadOrdersInFlight = false;
     render();
+    startShopReminderIfNeeded();
   }
 
   function orderProgress(o){
@@ -1194,6 +1212,7 @@
     var datalistMap = { resellers: 'resellerList', shops: 'shopList', couriers: 'courierList', sizes: 'sizeList' };
     html += '<input type="text" id="newListItemInput" list="' + datalistMap[tab] + '" autocomplete="off" placeholder="Add new ' + labelMap[tab].toLowerCase() + '" style="flex:1;">';
     html += '<button class="btn-secondary" id="addListItemBtn">Add</button></div>';
+    html += '<div id="dupCheckMsg" style="font-size:12px;margin:-6px 0 10px;min-height:16px;"></div>';
     html += '<div style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">';
     var list = listMap[tab];
     if(list.length === 0){
@@ -1218,6 +1237,21 @@
     document.getElementById('addListItemBtn').addEventListener('click', addListItem);
     document.getElementById('newListItemInput').addEventListener('keydown', function(e){
       if(e.key === 'Enter') addListItem();
+    });
+    document.getElementById('newListItemInput').addEventListener('input', function(){
+      var val = (this.value || '').trim().toLowerCase();
+      var msgEl = document.getElementById('dupCheckMsg');
+      var addBtn = document.getElementById('addListItemBtn');
+      if(!val){ msgEl.textContent = ''; addBtn.disabled = false; return; }
+      var dup = list.find(function(s){ return s.trim().toLowerCase() === val; });
+      if(dup){
+        msgEl.textContent = '\u26a0\ufe0f Already in your list as "' + dup + '"';
+        msgEl.style.color = '#fdd663';
+        addBtn.disabled = true;
+      }else{
+        msgEl.textContent = '';
+        addBtn.disabled = false;
+      }
     });
     document.querySelectorAll('.del-list-item-btn').forEach(function(btn){
       btn.addEventListener('click', function(){
@@ -2090,7 +2124,7 @@
         html += '<img src="' + p.previewUrl + '">';
         html += '<div class="photo-shop-row-fields">';
         html += '<label>Photo ' + (i+1) + ' \u2014 Shop</label>';
-        html += '<input type="text" class="photoShopInput" data-idx="' + i + '" list="shopList" value="' + esc(p.shopVal||'') + '" style="margin-bottom:8px;">';
+        html += '<input type="text" class="photoShopInput" data-idx="' + i + '" list="shopList" autocomplete="off" value="' + esc(p.shopVal||'') + '" style="margin-bottom:8px;">';
         html += '<label>Photo ' + (i+1) + ' \u2014 Size (optional)</label>';
         html += '<input type="text" class="photoSizeInput" data-idx="' + i + '" list="sizeList" value="' + esc(p.sizeVal||'') + '">';
         html += '</div></div>';
@@ -2099,9 +2133,9 @@
       html += '<div class="field-hint">If you enter a size, it will be stamped on the photo below the order ID</div></div>';
     }
 
-    html += '<div class="field"><label>Reseller name</label><input type="text" id="nameInput" list="resellerList" value="' + esc(state.nameVal||'') + '">';
-    html += '<div class="field-hint">Start typing to see saved resellers</div></div>';
-    html += '<div class="field"><label>Courier (optional)</label><input type="text" id="courierInput" list="courierList" value="' + esc(state.courierVal||'') + '"></div>';
+    html += '<div class="field"><label>Reseller name</label><input type="text" id="nameInput" list="resellerList" autocomplete="off" value="' + esc(state.nameVal||'') + '">';
+    html += '<div class="field-hint">Type to search \u2014 it\u2019ll snap to the full saved name. Not listed? Add it once in Manage Lists.</div></div>';
+    html += '<div class="field"><label>Courier (optional)</label><input type="text" id="courierInput" list="courierList" autocomplete="off" value="' + esc(state.courierVal||'') + '"></div>';
     html += '<div class="field"><label>Full delivery address</label><textarea id="addressInput" rows="5" placeholder="Name, house/flat no, street, city, state, pincode, contact">' + esc(state.addressVal||'') + '</textarea></div>';
     if(state.bookError){ html += '<div class="error-text">' + esc(state.bookError) + '</div>'; }
     html += '<button class="btn-primary" id="saveOrderBtn" ' + (state.saving||state.processing ? 'disabled' : '') + '>' + (state.saving ? '<span class="spinner-sm"></span>Saving...' : 'Save order') + '</button>';
@@ -2124,7 +2158,7 @@
       try{
         var slice = files.slice(0, 50 - state.bookPhotos.length);
         var blobs = await Promise.all(slice.map(function(f){ return resizeImageToBlob(f, 900); }));
-        var withPreview = blobs.map(function(b){ return { blob: b, previewUrl: URL.createObjectURL(b), shopVal: '', sizeVal: '' }; });
+        var withPreview = blobs.map(function(b){ return { blob: b, previewUrl: URL.createObjectURL(b), shopVal: 'Shop Name Pending', sizeVal: '' }; });
         state.bookPhotos = state.bookPhotos.concat(withPreview).slice(0,50);
       }catch(err){
         state.bookError = 'Could not process a photo: ' + (err && err.message ? err.message : 'unknown error');
@@ -2147,6 +2181,11 @@
     });
     document.querySelectorAll('.photoShopInput').forEach(function(inp){
       inp.addEventListener('input', function(){
+        var idx = parseInt(inp.getAttribute('data-idx'), 10);
+        if(state.bookPhotos[idx]) state.bookPhotos[idx].shopVal = inp.value;
+      });
+      inp.addEventListener('blur', function(){
+        tryAutocomplete(inp, state.shops);
         var idx = parseInt(inp.getAttribute('data-idx'), 10);
         if(state.bookPhotos[idx]) state.bookPhotos[idx].shopVal = inp.value;
       });
@@ -2184,9 +2223,17 @@
     var nameInput = document.getElementById('nameInput');
     var courierInput = document.getElementById('courierInput');
     var addressInput = document.getElementById('addressInput');
+    if(addressInput) addressInput.addEventListener('input', function(){ state.addressVal = addressInput.value; });
     if(nameInput) nameInput.addEventListener('input', function(){ state.nameVal = nameInput.value; });
     if(courierInput) courierInput.addEventListener('input', function(){ state.courierVal = courierInput.value; });
-    if(addressInput) addressInput.addEventListener('input', function(){ state.addressVal = addressInput.value; });
+    if(nameInput) nameInput.addEventListener('blur', function(){
+      tryAutocomplete(nameInput, state.resellers);
+      state.nameVal = nameInput.value;
+    });
+    if(courierInput) courierInput.addEventListener('blur', function(){
+      tryAutocomplete(courierInput, state.couriers || []);
+      state.courierVal = courierInput.value;
+    });
     if(nameInput) nameInput.addEventListener('keydown', function(e){
       if(e.key === 'Enter'){
         e.preventDefault();
@@ -2215,11 +2262,30 @@
 
     var saveBtn = document.getElementById('saveOrderBtn');
     saveBtn && saveBtn.addEventListener('click', async function(){
-      var name = (state.nameVal || '').trim();
+      // Resolve any partial typing (e.g. "1191") to the full matching entry
+      // one more time right before validating, in case Save was clicked
+      // without the field ever losing focus.
+      if(nameInput) tryAutocomplete(nameInput, state.resellers);
+      if(courierInput) tryAutocomplete(courierInput, state.couriers || []);
+      document.querySelectorAll('.photoShopInput').forEach(function(inp){ tryAutocomplete(inp, state.shops); });
+
+      var name = (nameInput ? nameInput.value : state.nameVal || '').trim();
       var address = (state.addressVal || '').trim();
-      var courier = (state.courierVal || '').trim();
+      var courier = (courierInput ? courierInput.value : state.courierVal || '').trim();
+      state.nameVal = name;
+      state.courierVal = courier;
+
       if(state.bookPhotos.length === 0){ state.bookError = 'Add at least one photo'; render(); return; }
-      if(!name){ state.bookError = 'Enter reseller name'; render(); return; }
+      if(!name){ state.bookError = 'Select a reseller'; render(); return; }
+      if(!isExactListMatch(name, state.resellers)){ state.bookError = 'Reseller "' + name + '" isn\u2019t in your list \u2014 check spelling, or add it in Manage Lists'; render(); return; }
+      if(!isExactListMatch(courier, state.couriers || [])){ state.bookError = 'Courier "' + courier + '" isn\u2019t in your list \u2014 check spelling, or add it in Manage Lists'; render(); return; }
+      var badShop = null;
+      state.bookPhotos.forEach(function(p, i){
+        if(badShop) return;
+        if(!(p.shopVal||'').trim()){ badShop = { idx: i, val: '(empty)' }; }
+        else if(!isExactListMatch(p.shopVal, state.shops)){ badShop = { idx: i, val: p.shopVal }; }
+      });
+      if(badShop){ state.bookError = 'Pick a shop for photo ' + (badShop.idx+1) + ' \u2014 use "Shop Name Pending" if you don\u2019t know it yet'; render(); return; }
       if(!address){ state.bookError = 'Enter delivery address'; render(); return; }
       state.bookError = '';
       state.saving = true;
@@ -2435,8 +2501,8 @@
 
     var html = '<div class="modal-overlay" style="padding:12px;align-items:flex-start;"><div class="modal-box" style="max-width:480px;text-align:left;max-height:92vh;overflow-y:auto;margin-top:20px;">';
     html += '<h3 style="margin:0 0 12px;">Edit Order #' + esc(ord.id) + '</h3>';
-    html += '<div class="field"><label>Reseller name</label><input type="text" id="editNameInput" list="resellerList" value="' + esc(ord.reseller_name||'') + '"></div>';
-    html += '<div class="field"><label>Courier</label><input type="text" id="editCourierInput" list="courierList" value="' + esc(ord.courier||'') + '"></div>';
+    html += '<div class="field"><label>Reseller name</label><input type="text" id="editNameInput" list="resellerList" autocomplete="off" value="' + esc(ord.reseller_name||'') + '"></div>';
+    html += '<div class="field"><label>Courier</label><input type="text" id="editCourierInput" list="courierList" autocomplete="off" value="' + esc(ord.courier||'') + '"></div>';
     html += '<div class="field"><label>Address</label><textarea id="editAddressInput" rows="4">' + esc(ord.address||'') + '</textarea></div>';
 
     html += '<label style="display:block;margin-bottom:6px;">Pieces</label>';
@@ -2444,7 +2510,7 @@
     visibleItems.forEach(function(it){
       html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">';
       html += '<img src="' + (it.thumb_url || it.photo_url) + '" style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0;">';
-      html += '<input type="text" class="editItemShop" data-item-id="' + it.id + '" list="shopList" placeholder="Shop" value="' + esc(it.shop_name||'') + '" style="flex:1;min-width:0;">';
+      html += '<input type="text" class="editItemShop" data-item-id="' + it.id + '" list="shopList" autocomplete="off" placeholder="Shop" value="' + esc(it.shop_name||'Shop Name Pending') + '" style="flex:1;min-width:0;">';
       html += '<input type="text" class="editItemSize" data-item-id="' + it.id + '" list="sizeList" placeholder="Size" value="' + esc(it.size||'') + '" style="width:60px;">';
       html += '<button class="btn-del editItemRemoveBtn" data-item-id="' + it.id + '" style="padding:6px 10px;">\u2715</button>';
       html += '</div>';
@@ -2452,7 +2518,7 @@
     state.editOrderPhotos.forEach(function(p, idx){
       html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;background:rgba(129,201,149,0.08);border-radius:8px;padding:4px;">';
       html += '<img src="' + p.previewUrl + '" style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0;">';
-      html += '<input type="text" class="editNewItemShop" data-idx="' + idx + '" list="shopList" placeholder="Shop" value="' + esc(p.shopVal||'') + '" style="flex:1;min-width:0;">';
+      html += '<input type="text" class="editNewItemShop" data-idx="' + idx + '" list="shopList" autocomplete="off" placeholder="Shop" value="' + esc(p.shopVal||'') + '" style="flex:1;min-width:0;">';
       html += '<input type="text" class="editNewItemSize" data-idx="' + idx + '" list="sizeList" placeholder="Size" value="' + esc(p.sizeVal||'') + '" style="width:60px;">';
       html += '<button class="btn-del editNewItemRemoveBtn" data-idx="' + idx + '" style="padding:6px 10px;">\u2715</button>';
       html += '</div>';
@@ -2501,7 +2567,7 @@
       renderEditOrderModal();
       try{
         var blobs = await Promise.all(files.map(function(f){ return resizeImageToBlob(f, 900); }));
-        blobs.forEach(function(b){ state.editOrderPhotos.push({ blob: b, previewUrl: URL.createObjectURL(b), shopVal: '', sizeVal: '' }); });
+        blobs.forEach(function(b){ state.editOrderPhotos.push({ blob: b, previewUrl: URL.createObjectURL(b), shopVal: 'Shop Name Pending', sizeVal: '' }); });
       }catch(err){
         showToast('Could not process a photo: ' + (err && err.message ? err.message : 'unknown error'));
       }
@@ -2517,10 +2583,27 @@
     var ord = state.orders.find(function(o){ return o.id === orderId; });
     if(!ord) return;
 
-    var name = (document.getElementById('editNameInput').value || '').trim();
-    var courier = (document.getElementById('editCourierInput').value || '').trim();
+    var nameInputEl = document.getElementById('editNameInput');
+    var courierInputEl = document.getElementById('editCourierInput');
+    // Resolve any partial typing (e.g. "1191") to the full matching entry.
+    tryAutocomplete(nameInputEl, state.resellers);
+    tryAutocomplete(courierInputEl, state.couriers || []);
+    document.querySelectorAll('.editItemShop').forEach(function(inp){ tryAutocomplete(inp, state.shops); });
+    document.querySelectorAll('.editNewItemShop').forEach(function(inp){ tryAutocomplete(inp, state.shops); });
+
+    var name = (nameInputEl.value || '').trim();
+    var courier = (courierInputEl.value || '').trim();
     var address = (document.getElementById('editAddressInput').value || '').trim();
     if(!name){ showToast('Reseller name is required'); return; }
+    if(!isExactListMatch(name, state.resellers)){ showToast('Reseller "' + name + '" isn\u2019t in your list \u2014 check spelling, or add it in Manage Lists'); return; }
+    if(!isExactListMatch(courier, state.couriers || [])){ showToast('Courier "' + courier + '" isn\u2019t in your list \u2014 check spelling, or add it in Manage Lists'); return; }
+    var badShop = null;
+    document.querySelectorAll('.editItemShop, .editNewItemShop').forEach(function(inp){
+      if(badShop) return;
+      if(!(inp.value||'').trim()){ badShop = '(empty)'; }
+      else if(!isExactListMatch(inp.value, state.shops)){ badShop = inp.value; }
+    });
+    if(badShop){ showToast('Every piece needs a shop \u2014 use "Shop Name Pending" if you don\u2019t know it yet'); return; }
     if(!address){ showToast('Address is required'); return; }
 
     var visibleItems = (ord.items||[]).filter(function(it){ return state.editOrderRemovedItemIds.indexOf(it.id) === -1; });
@@ -2726,11 +2809,104 @@
 
   // ===== BY SHOP TAB =====
 
+  // Every 5 minutes while someone is logged in, pop up a box showing every
+  // piece still waiting on a real shop — with its photo and a shop field
+  // right there, so it can be fixed without leaving whatever screen you're on.
+  function checkShopPendingReminder(){
+    if(!state.session) return;
+    if(document.getElementById('modalHost') && document.getElementById('modalHost').innerHTML.trim() !== '') return; // don't interrupt an open modal
+    var entries = getItemsNeedingShop();
+    if(entries.length === 0) return;
+    openShopReminderModal(entries);
+  }
+
+  function openShopReminderModal(entries){
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:420px;text-align:left;max-height:85vh;overflow-y:auto;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0 0 4px;color:#f2a76a;">\u26a0\ufe0f Shop pending on ' + entries.length + ' piece' + (entries.length!==1?'s':'') + '</p>';
+    html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 14px;">Pick a shop for each one below, or close and do it later.</p>';
+    entries.forEach(function(e){
+      var pieceId = e.order.id + '-' + (e.itemIndex+1);
+      html += '<div class="order-card">';
+      html += '<div class="order-top"><span class="order-id">#' + esc(pieceId) + '</span><span style="font-size:12px;color:#9aa0a6;">' + esc(e.order.reseller_name) + '</span></div>';
+      html += '<div style="display:flex;gap:10px;align-items:center;margin-top:8px;">';
+      html += '<img class="orderPhoto" data-src="' + e.item.photo_url + '" src="' + (e.item.thumb_url || e.item.photo_url) + '" style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0;cursor:zoom-in;">';
+      html += '<input type="text" class="reminderShopInput" data-item-id="' + e.item.id + '" list="shopList" autocomplete="off" placeholder="Type shop name" style="flex:1;">';
+      html += '<button class="btn-secondary reminderShopSaveBtn" data-item-id="' + e.item.id + '">Save</button>';
+      html += '</div></div>';
+    });
+    html += '<button class="btn-secondary" id="reminderCloseBtn" style="width:100%;margin-top:6px;">Close \u2014 remind me later</button>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    wireShopReminderModal();
+  }
+
+  function wireShopReminderModal(){
+    document.getElementById('reminderCloseBtn').addEventListener('click', closeModal);
+    document.querySelectorAll('#modalHost .orderPhoto').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+    document.querySelectorAll('.reminderShopInput').forEach(function(inp){
+      inp.addEventListener('blur', function(){ tryAutocomplete(inp, state.shops); });
+      inp.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          var btn = document.querySelector('.reminderShopSaveBtn[data-item-id="' + inp.getAttribute('data-item-id') + '"]');
+          if(btn) btn.click();
+        }
+      });
+    });
+    document.querySelectorAll('.reminderShopSaveBtn').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var itemId = parseInt(btn.getAttribute('data-item-id'), 10);
+        var inp = document.querySelector('.reminderShopInput[data-item-id="' + itemId + '"]');
+        tryAutocomplete(inp, state.shops);
+        var val = (inp.value || '').trim();
+        if(!val){ showToast('Type a shop name first'); return; }
+        if(!isExactListMatch(val, state.shops)){ showToast('"' + val + '" isn\u2019t in your shop list \u2014 check spelling, or add it in Manage Lists'); return; }
+        var { error } = await sb.from('order_items').update({ shop_name: val }).eq('id', itemId);
+        if(error){ showToast('Could not save: ' + error.message); return; }
+        state.orders.forEach(function(o){
+          (o.items||[]).forEach(function(it){ if(it.id === itemId){ it.shop_name = val; } });
+        });
+        showToast('Shop saved');
+        var remaining = getItemsNeedingShop();
+        if(remaining.length === 0){ closeModal(); render(); }
+        else{ openShopReminderModal(remaining); }
+      });
+    });
+  }
+
+  function startShopReminderIfNeeded(){
+    if(shopReminderIntervalId) return; // already running
+    shopReminderIntervalId = setInterval(checkShopPendingReminder, 5 * 60 * 1000);
+    setTimeout(checkShopPendingReminder, 15000); // first nudge shortly after login, not a full 5-minute wait
+  }
+  function stopShopReminder(){
+    if(shopReminderIntervalId){ clearInterval(shopReminderIntervalId); shopReminderIntervalId = null; }
+  }
+
+  // Pieces that were booked without a shop picked yet — invisible to the
+  // normal by-shop grouping below since there's no shop_name to group by.
+  var SHOP_PENDING_LABEL = 'Shop Name Pending';
+
+  function getItemsNeedingShop(){
+    var results = [];
+    state.orders.forEach(function(o){
+      if(o.status === 'cancelled') return;
+      (o.items||[]).forEach(function(item, idx){
+        var pending = !item.shop_name || item.shop_name === SHOP_PENDING_LABEL;
+        if(!pending || item.status === 'shipped') return;
+        results.push({ order: o, item: item, itemIndex: idx });
+      });
+    });
+    return results;
+  }
+
   function getShopSummary(mode){
     var byShop = {};
     state.orders.forEach(function(o){
       (o.items||[]).forEach(function(item, idx){
-        if(!item.shop_name) return;
+        if(!item.shop_name || item.shop_name === SHOP_PENDING_LABEL) return;
         var include = false;
         if(mode === 'need'){
           include = (o.status !== 'cancelled') && !item.shop_booked_at;
@@ -2748,6 +2924,33 @@
     return byShop;
   }
 
+  function renderNeedsShopView(query){
+    var entries = getItemsNeedingShop();
+    if(query){
+      entries = entries.filter(function(e){
+        var pieceId = (e.order.id + '-' + (e.itemIndex+1)).toLowerCase();
+        var hay = (pieceId + ' ' + e.order.id + ' ' + e.order.reseller_name).toLowerCase();
+        return hay.indexOf(query) !== -1;
+      });
+    }
+    var html = '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">Booked without a shop picked yet \u2014 pick one for each piece below so it shows up in \u201cNeed to book\u201d.</p>';
+    if(entries.length === 0){
+      html += '<div class="empty-state">' + (query ? 'No matches for that search.' : 'Nothing pending \u2014 every piece has a shop assigned.') + '</div>';
+      return html;
+    }
+    entries.forEach(function(e){
+      var pieceId = e.order.id + '-' + (e.itemIndex+1);
+      html += '<div class="order-card">';
+      html += '<div class="order-top"><span class="order-id">#' + esc(pieceId) + '</span><span style="font-size:12px;color:#9aa0a6;">' + esc(e.order.reseller_name) + '</span></div>';
+      html += '<div style="display:flex;gap:10px;align-items:center;margin-top:8px;">';
+      html += '<img class="orderPhoto" data-src="' + e.item.photo_url + '" src="' + (e.item.thumb_url || e.item.photo_url) + '" style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0;cursor:zoom-in;">';
+      html += '<input type="text" class="needShopInput" data-item-id="' + e.item.id + '" list="shopList" autocomplete="off" placeholder="Type shop name" style="flex:1;">';
+      html += '<button class="btn-secondary needShopSaveBtn" data-item-id="' + e.item.id + '">Save</button>';
+      html += '</div></div>';
+    });
+    return html;
+  }
+
   function renderShopsTab(){
     var mode = state.shopBookingView || 'need';
     var byShop = getShopSummary(mode);
@@ -2759,8 +2962,13 @@
     html += '<div class="filters">';
     html += '<div class="filter-chip' + (mode==='need'?' active':'') + '" data-view="need">Need to book</div>';
     html += '<div class="filter-chip' + (mode==='pending'?' active':'') + '" data-view="pending">Pending</div>';
+    html += '<div class="filter-chip' + (mode==='noshop'?' active':'') + '" data-view="noshop">Needs shop' + (getItemsNeedingShop().length ? ' (' + getItemsNeedingShop().length + ')' : '') + '</div>';
     html += '<div class="filter-chip' + (mode==='all'?' active':'') + '" data-view="all">All</div>';
     html += '</div>';
+
+    if(mode === 'noshop'){
+      return html + renderNeedsShopView(query);
+    }
 
     if(mode === 'need'){
       html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">Pieces still waiting to be forwarded to each shop.</p>';
@@ -2843,6 +3051,33 @@
     });
     document.querySelectorAll('.shop-share-btn').forEach(function(btn){
       btn.addEventListener('click', function(){ shareShopToWhatsApp(btn.getAttribute('data-shop'), btn); });
+    });
+    document.querySelectorAll('.needShopInput').forEach(function(inp){
+      inp.addEventListener('blur', function(){ tryAutocomplete(inp, state.shops); });
+      inp.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          var btn = document.querySelector('.needShopSaveBtn[data-item-id="' + inp.getAttribute('data-item-id') + '"]');
+          if(btn) btn.click();
+        }
+      });
+    });
+    document.querySelectorAll('.needShopSaveBtn').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var itemId = parseInt(btn.getAttribute('data-item-id'), 10);
+        var inp = document.querySelector('.needShopInput[data-item-id="' + itemId + '"]');
+        tryAutocomplete(inp, state.shops);
+        var val = (inp.value || '').trim();
+        if(!val){ showToast('Type a shop name first'); return; }
+        if(!isExactListMatch(val, state.shops)){ showToast('"' + val + '" isn\u2019t in your shop list \u2014 check spelling, or add it in Manage Lists'); return; }
+        var { error } = await sb.from('order_items').update({ shop_name: val }).eq('id', itemId);
+        if(error){ showToast('Could not save: ' + error.message); return; }
+        state.orders.forEach(function(o){
+          (o.items||[]).forEach(function(it){ if(it.id === itemId){ it.shop_name = val; } });
+        });
+        showToast('Shop saved \u2014 now in "Need to book"');
+        render();
+      });
     });
   }
 
