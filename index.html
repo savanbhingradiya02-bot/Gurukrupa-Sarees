@@ -280,20 +280,11 @@
   .shop-tray-item img { width: 100%; height: 140px; object-fit: cover; display: block; cursor: zoom-in; }
   .shop-tray-caption { font-size: 10px; color: #9aa0a6; padding: 4px 5px; line-height: 1.3; }
   .purchase-album { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-  .purchase-tile { position: relative; border-radius: 12px; overflow: hidden; background: #202124; border: 1px solid #3c4043; }
-  .purchase-tile img { width: 100%; height: 250px; object-fit: cover; display: block; }
+  .purchase-tile { position: relative; cursor: pointer; border-radius: 12px; overflow: hidden; background: #202124; border: 1px solid #3c4043; transition: transform 0.08s ease; }
+  .purchase-tile:active { transform: scale(0.97); }
+  .purchase-tile img { width: 100%; height: 250px; object-fit: cover; display: block; transition: transform 0.12s, border-radius 0.12s; }
   .purchase-tile.selected { border-color: #d97a3f; box-shadow: 0 0 0 2px rgba(217,122,63,0.5); }
-  .purchase-tile-chk {
-    position: absolute; top: 8px; left: 8px; width: 24px; height: 24px; z-index: 2;
-    -webkit-appearance: none; appearance: none; border-radius: 7px; border: 2px solid #fff;
-    background: rgba(0,0,0,0.35); cursor: pointer; margin: 0;
-  }
-  .purchase-tile-chk:checked { background: #d97a3f; border-color: #d97a3f; }
-  .purchase-tile-chk:checked::after {
-    content: ''; position: absolute; left: 6px; top: 2px; width: 6px; height: 11px;
-    border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
-  }
-  .purchase-tile-dots { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; border: none; font-size: 14px; font-weight: 700; cursor: pointer; z-index: 2; display: flex; align-items: center; justify-content: center; }
+  .purchase-tile.selected img { transform: scale(0.9); border-radius: 14px; opacity: 0.4; }
   .purchase-tile-badge { position: absolute; left: 6px; bottom: 6px; font-size: 9.5px; font-weight: 700; padding: 3px 8px; border-radius: 8px; }
   .purchase-shop-tray { display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 10px; padding-bottom: 2px; }
   .purchase-shop-tray-item { flex-shrink: 0; width: 110px; border-radius: 8px; overflow: hidden; background: #202124; border: 1px solid #3c4043; }
@@ -425,9 +416,9 @@
 <datalist id="sizeList"></datalist>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 <script>
 (function(){
 
@@ -4307,6 +4298,7 @@
     try{
       var { error } = await sb.from('order_items').update({ purchased: false, purchase_rate: null, payment_method: null, purchased_at: null, purchased_by: null }).eq('id', itemId);
       if(error) throw error;
+      showToast('Reverted to pending \u2014 back in Rajan\u2019s pending list');
     }catch(e){
       item.purchased = prev.purchased; item.purchase_rate = prev.purchase_rate; item.payment_method = prev.payment_method;
       showToast('Could not undo: ' + (e && e.message ? e.message : 'try again'));
@@ -4431,11 +4423,10 @@
     rows.forEach(function(r){
       var it = r.item;
       var sel = !!state.purchaseSelection[it.id];
-      html += '<div>';
-      html += '<div class="purchase-tile' + (sel?' selected':'') + '">';
-      if(!it.purchased){ html += '<input type="checkbox" class="purchase-tile-chk purchaseItemChk" data-item="' + it.id + '" ' + (sel?'checked':'') + '>'; }
-      html += '<button class="purchase-tile-dots photoZoomBtn" data-src="' + it.photo_url + '">\ud83d\udd0d</button>';
-      html += '<img class="purchaseThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url || it.photo_url) + '">';
+      html += '<div class="purchase-tile' + (sel?' selected':'') + '"' + (!it.purchased ? ' data-item="' + it.id + '"' : '') + '>';
+      if(!it.purchased){ html += '<div class="album-check">\u2713</div>'; }
+      html += '<button class="album-zoom-btn photoZoomBtn" data-src="' + it.photo_url + '" aria-label="View full size"><svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"></circle><line x1="15.5" y1="15.5" x2="21" y2="21"></line></svg></button>';
+      html += '<img class="purchaseThumb" src="' + (it.thumb_url || it.photo_url) + '" loading="lazy" decoding="async">';
       if(it.purchased){
         html += '<div class="purchase-tile-badge" style="background:rgba(127,217,154,0.9);color:#0b1f14;">\u2713 \u20b9' + esc(String(it.purchase_rate)) + '</div>';
       }else if(it.restock_date){
@@ -4443,8 +4434,6 @@
       }else{
         html += '<div class="purchase-tile-badge" style="background:rgba(0,0,0,0.6);color:#e8eaed;">Pending</div>';
       }
-      html += '</div>';
-      if(it.size){ html += '<div style="font-size:11px;color:#9aa0a6;padding:4px 2px 0;">Size: ' + esc(it.size) + '</div>'; }
       html += '</div>';
     });
     html += '</div>';
@@ -4488,13 +4477,10 @@
       if(!allSelected){ pendingIds.forEach(function(id){ state.purchaseSelection[id] = true; }); }
       render();
     });
-    document.querySelectorAll('.purchaseThumb').forEach(function(img){
-      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
-    });
-    document.querySelectorAll('.purchaseItemChk').forEach(function(chk){
-      chk.addEventListener('change', function(){
-        var id = parseInt(chk.getAttribute('data-item'), 10);
-        if(chk.checked){ state.purchaseSelection[id] = true; } else { delete state.purchaseSelection[id]; }
+    document.querySelectorAll('.purchase-tile[data-item]').forEach(function(tile){
+      tile.addEventListener('click', function(){
+        var id = parseInt(tile.getAttribute('data-item'), 10);
+        if(state.purchaseSelection[id]){ delete state.purchaseSelection[id]; } else { state.purchaseSelection[id] = true; }
         render();
       });
     });
@@ -4599,11 +4585,18 @@
     var method = state.purchasePendingMethod || '';
     if(method === 'gpay'){
       var upiVpa = state.shopUpiVpas[state.purchaseShopView];
+      var upiUrl;
       if(upiVpa){
-        var upiUrl = 'upi://pay?pa=' + encodeURIComponent(upiVpa) + '&pn=' + encodeURIComponent(state.purchaseShopView) + '&am=' + encodeURIComponent(String(total)) + '&cu=INR&tn=' + encodeURIComponent('Gurukrupa purchase');
-        html += '<a href="' + upiUrl + '" id="gpayPayLink" class="btn-secondary" style="display:block;text-align:center;text-decoration:none;width:100%;margin-bottom:10px;box-sizing:border-box;">\ud83d\udcf1 Pay \u20b9' + total.toLocaleString('en-IN') + ' via GPay</a>';
+        upiUrl = 'upi://pay?pa=' + encodeURIComponent(upiVpa) + '&pn=' + encodeURIComponent(state.purchaseShopView) + '&am=' + encodeURIComponent(String(total)) + '&cu=INR&tn=' + encodeURIComponent('Gurukrupa purchase');
       }else{
-        html += '<div class="field-hint">No UPI ID saved for this shop yet \u2014 pay however you normally would, then enter the transaction ID below. Ask Soham to add the shop\u2019s UPI ID in Manage Lists for a one-tap pay link next time.</div>';
+        // No saved UPI ID for this shop yet — still open GPay directly with
+        // the amount ready to go; Rajan scans/searches the payee inside the
+        // app. Once Soham adds the shop's UPI ID this becomes one-tap.
+        upiUrl = 'upi://pay?am=' + encodeURIComponent(String(total)) + '&cu=INR&tn=' + encodeURIComponent('Gurukrupa purchase');
+      }
+      html += '<a href="' + upiUrl + '" id="gpayPayLink" class="btn-secondary" style="display:block;text-align:center;text-decoration:none;width:100%;margin-bottom:10px;box-sizing:border-box;">\ud83d\udcf1 Open GPay \u2014 pay \u20b9' + total.toLocaleString('en-IN') + '</a>';
+      if(!upiVpa){
+        html += '<div class="field-hint">This shop has no saved UPI ID yet, so you\u2019ll need to pick or scan the payee inside GPay. Ask Soham to add it in Manage Lists for a one-tap pay next time.</div>';
       }
       html += '<label style="margin-top:8px;">UPI transaction ID / UTR number</label>';
       html += '<input type="text" id="purchaseUpiRefInput" autocomplete="off" placeholder="e.g. 411223456789" value="' + esc(state.purchaseUpiRefVal||'') + '" style="margin-bottom:10px;">';
@@ -4614,7 +4607,7 @@
       if(chUrl){ html += '<div class="field-hint">Challan reference for this shop:</div><img src="' + chUrl + '" style="width:100%;max-height:180px;object-fit:contain;border-radius:10px;border:1px solid #3c4043;margin:6px 0;">'; }
       html += '<div class="field-hint">Add a photo of today\u2019s challan slip:</div>';
       html += '<button class="btn-secondary" id="purchaseScreenshotBtn" style="width:100%;margin:8px 0 10px;">\ud83d\udcf7 ' + (state.purchaseScreenshotPreview?'Retake challan photo':'Add challan photo') + '</button>';
-      html += '<input type="file" id="purchaseScreenshotInput" accept="image/*" style="display:none;">';
+      html += '<input type="file" id="purchaseScreenshotInput" accept="image/*" capture="environment" style="display:none;">';
       if(state.purchaseScreenshotPreview){ html += '<img src="' + state.purchaseScreenshotPreview + '" style="width:100%;max-height:150px;object-fit:contain;border-radius:10px;border:1px solid #3c4043;margin-bottom:10px;">'; }
     }
     if(method === 'message'){
@@ -4946,12 +4939,29 @@
         html += '<div><span class="order-id">#' + esc(r.pieceLabel) + '</span></div>';
         html += '<div style="font-size:12.5px;color:#e8eaed;">' + esc(it.shop_name||'') + ' \u00b7 ' + esc(o.reseller_name||'') + '</div>';
         html += '<div style="font-size:12px;color:#7fd99a;font-weight:600;">\u20b9' + esc(String(it.purchase_rate)) + ' \u00b7 ' + esc((it.payment_method||'').toUpperCase()) + (it.upi_ref ? ' \u00b7 UPI ' + esc(it.upi_ref) : '') + '</div>';
+        html += '<button class="ledger-undo-btn" data-item="' + it.id + '" data-piece="' + esc(r.pieceLabel) + '" data-rate="' + esc(String(it.purchase_rate)) + '" data-method="' + esc((it.payment_method||'').toUpperCase()) + '" style="margin-top:6px;font-size:11px;padding:4px 9px;background:none;border:1px solid #f28b82;color:#f28b82;border-radius:6px;cursor:pointer;">\u21a9\ufe0f Undo \u2014 back to pending</button>';
         html += '</div>';
         if(it.purchase_photo_url){ html += '<img class="ledgerThumb" data-src="' + it.purchase_photo_url + '" src="' + it.purchase_photo_url + '" title="Purchase-time photo" style="width:44px;height:56px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;flex-shrink:0;cursor:zoom-in;">'; }
         if(it.payment_screenshot_url){ html += '<img class="ledgerThumb" data-src="' + it.payment_screenshot_url + '" src="' + it.payment_screenshot_url + '" title="Message screenshot" style="width:44px;height:56px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;flex-shrink:0;cursor:zoom-in;">'; }
         html += '</div>';
       });
     return html;
+  }
+
+  function openUndoPurchaseConfirm(itemId, pieceLabel, rate, method){
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:320px;text-align:left;">';
+    html += '<p style="font-size:14px;font-weight:700;margin:0 0 8px;">Undo this purchase?</p>';
+    html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">Piece #' + esc(pieceLabel) + ' \u2014 \u20b9' + esc(rate) + ' via ' + esc(method) + '. It goes back to pending in Rajan\u2019s list, and the ' + esc(method) + ' balance is credited back.</p>';
+    html += '<div class="modal-actions"><button id="undoPurchaseCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button><button id="undoPurchaseConfirmBtn" style="background:#d43b3b;color:#fff;border:none;">Undo</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    document.getElementById('undoPurchaseCancelBtn').addEventListener('click', closeModal);
+    document.getElementById('undoPurchaseConfirmBtn').addEventListener('click', async function(){
+      closeModal();
+      await unmarkItemPurchased(itemId);
+      var content = document.getElementById('tabContent');
+      if(content){ content.innerHTML = renderPurchaseLedgerTab(); wirePurchaseLedgerTab(); }
+    });
   }
 
   function wirePurchaseLedgerTab(){
@@ -4971,6 +4981,16 @@
 
     document.querySelectorAll('.ledgerThumb').forEach(function(img){
       img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+    document.querySelectorAll('.ledger-undo-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        openUndoPurchaseConfirm(
+          parseInt(btn.getAttribute('data-item'), 10),
+          btn.getAttribute('data-piece'),
+          btn.getAttribute('data-rate'),
+          btn.getAttribute('data-method')
+        );
+      });
     });
   }
 
