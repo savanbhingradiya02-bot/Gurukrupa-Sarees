@@ -4493,10 +4493,12 @@
     var openBuyBtn = document.getElementById('purchaseOpenBuyBtn');
     if(openBuyBtn) openBuyBtn.addEventListener('click', function(){
       state.purchaseActionError = '';
+      state.purchaseBatchChk = {};
       openPurchaseBuyModal();
     });
     var openRestockBtn = document.getElementById('purchaseOpenRestockBtn');
     if(openRestockBtn) openRestockBtn.addEventListener('click', function(){
+      state.purchaseBatchChk = {};
       openPurchaseRestockModal();
     });
     var bulkMenuBtn = document.getElementById('purchaseBulkMenuBtn');
@@ -4558,11 +4560,6 @@
     var html = '<div class="modal-overlay" style="align-items:flex-end;"><div class="modal-box" style="max-width:480px;width:100%;max-height:88vh;overflow-y:auto;text-align:left;border-radius:20px 20px 0 0;">';
     html += '<p style="font-size:15px;font-weight:700;margin:0 0 10px;">Mark ' + rows.length + ' piece' + (rows.length!==1?'s':'') + ' purchased</p>';
 
-    html += '<div style="background:#202124;border:1px solid #3c4043;border-radius:10px;padding:10px;margin-bottom:12px;">';
-    html += '<label style="margin-bottom:6px;">Same price for several? Tick them, type once, apply</label>';
-    html += '<div style="display:flex;gap:8px;"><input type="number" min="0" id="purchaseBatchAmountInput" placeholder="\u20b9 amount" value="' + esc(state.purchaseBatchAmount||'') + '" style="flex:1;"><button class="btn-secondary" id="purchaseBatchApplyBtn" style="width:auto;padding:10px 14px;">Apply to ticked</button></div>';
-    html += '</div>';
-
     rows.forEach(function(r){
       var it = r.item, o = r.order;
       var batchChecked = state.purchaseBatchChk[it.id] !== false;
@@ -4574,6 +4571,11 @@
       html += '<input type="number" min="0" inputmode="decimal" class="purchaseRateDraftInput" data-item="' + it.id + '" placeholder="\u20b9" style="width:90px;flex-shrink:0;" value="' + esc(draft) + '">';
       html += '</div>';
     });
+
+    html += '<div style="background:#202124;border:1px solid #3c4043;border-radius:10px;padding:10px;margin:12px 0;">';
+    html += '<label style="margin-bottom:6px;">Same price for several? Tick them, type once, apply</label>';
+    html += '<div style="display:flex;gap:8px;"><input type="number" min="0" id="purchaseBatchAmountInput" placeholder="\u20b9 amount" value="' + esc(state.purchaseBatchAmount||'') + '" style="flex:1;"><button class="btn-secondary" id="purchaseBatchApplyBtn" style="width:auto;padding:10px 14px;">Apply to ticked</button></div>';
+    html += '</div>';
 
     html += '<div id="purchaseBuyTotalDisplay" style="text-align:right;font-size:16px;font-weight:800;color:#f2a76a;margin:12px 0;">\u20b9' + total.toLocaleString('en-IN') + '</div>';
 
@@ -4782,9 +4784,9 @@
 
     rows.forEach(function(r){
       var it = r.item, o = r.order;
-      var batchChecked = state.purchaseBatchChk[it.id] !== false;
-      html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #3c4043;">';
-      html += '<input type="checkbox" class="purchaseDateBatchChk custom-chk" data-item="' + it.id + '" ' + (batchChecked?'checked':'') + ' style="width:22px;height:22px;flex-shrink:0;">';
+      var batchChecked = state.purchaseBatchChk[it.id] === true;
+      html += '<div class="purchaseDateRow" data-item="' + it.id + '" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #3c4043;cursor:pointer;">';
+      html += '<input type="checkbox" class="purchaseDateBatchChk custom-chk" data-item="' + it.id + '" ' + (batchChecked?'checked':'') + ' style="width:22px;height:22px;flex-shrink:0;pointer-events:none;">';
       html += '<img src="' + (it.thumb_url||it.photo_url) + '" style="width:40px;height:50px;object-fit:cover;border-radius:6px;flex-shrink:0;">';
       html += '<span style="font-size:12.5px;color:#e8eaed;flex:1;">#' + esc(o.id) + (it.size?' \u00b7 '+esc(it.size):'') + '</span>';
       if(it.restock_date){ html += '<span style="font-size:11.5px;color:#f2a76a;font-weight:700;">' + esc(formatRestockDate(it.restock_date)) + '</span>'; }
@@ -4805,15 +4807,17 @@
   }
 
   function wirePurchaseRestockModal(ids){
-    document.querySelectorAll('.purchaseDateBatchChk').forEach(function(chk){
-      chk.addEventListener('change', function(){
-        state.purchaseBatchChk[parseInt(chk.getAttribute('data-item'),10)] = chk.checked;
+    document.querySelectorAll('.purchaseDateRow').forEach(function(row){
+      row.addEventListener('click', function(){
+        var id = parseInt(row.getAttribute('data-item'), 10);
+        state.purchaseBatchChk[id] = state.purchaseBatchChk[id] === true ? false : true;
+        openPurchaseRestockModal();
       });
     });
     document.querySelectorAll('.purchaseRestockChip').forEach(function(chip){
       chip.addEventListener('click', function(){
         var iso = chip.getAttribute('data-iso');
-        var applyIds = ids.filter(function(id){ return state.purchaseBatchChk[id] !== false; });
+        var applyIds = ids.filter(function(id){ return state.purchaseBatchChk[id] === true; });
         if(applyIds.length === 0){ showToast('Tick at least one piece first'); return; }
         restockSelectedItems(applyIds, iso).then(function(){
           applyIds.forEach(function(id){ state.purchaseBatchChk[id] = false; });
