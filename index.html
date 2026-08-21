@@ -932,6 +932,7 @@
 
   async function logout(){
     stopShopReminder();
+    stopTrackingFillReminder();
     await sb.auth.signOut();
     state.session = null;
     state.orders = [];
@@ -1089,6 +1090,7 @@
     loadOrdersInFlight = false;
     render();
     startShopReminderIfNeeded();
+    startTrackingFillReminderIfNeeded();
     if(isSuperAdmin() && !state.staffAlertsShownThisSession){
       state.staffAlertsShownThisSession = true;
       var alerts = computeStaffAlerts();
@@ -1149,6 +1151,14 @@
       }else if(!o.urgent && ds !== 'shipped' && hrs > ALERT_PENDING_HOURS){
         alerts.push({ orderId: o.id, severity: 'medium',
           message: 'Order #' + o.id + ' has been pending ' + Math.floor(hrs/24) + ' day' + (Math.floor(hrs/24)!==1?'s':'') + ' without being shipped.' });
+      }
+
+      if(ds === 'shipped' && !o.tracking_number){
+        var trackHrs = hoursSinceShippedUntracked(o);
+        if(trackHrs > ALERT_TRACKING_MISSING_HOURS){
+          alerts.push({ orderId: o.id, severity: 'high',
+            message: 'Order #' + o.id + ' shipped ' + Math.floor(trackHrs) + '+ hour' + (Math.floor(trackHrs)!==1?'s':'') + ' ago and still has no tracking number \u2014 Bhagyasree has been reminded but hasn\u2019t filled it in yet.' });
+        }
       }
 
       (o.items||[]).forEach(function(it){
@@ -2278,7 +2288,7 @@
       html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 12px;">Couldn\u2019t confidently match these \u2014 pick the right order.</p>';
       state.trackingUnmatched.forEach(function(entry, idx){
         html += '<div class="order-card">';
-        html += '<div class="item-wrap"><img src="' + entry.previewUrl + '" style="width:100%;height:auto;border-radius:8px;display:block;"></div>';
+        html += '<div class="item-wrap"><img class="unmatchedPhotoZoom" data-src="' + entry.previewUrl + '" src="' + entry.previewUrl + '" style="width:100%;height:auto;border-radius:8px;display:block;cursor:zoom-in;"></div>';
         html += '<input type="text" class="unmatchedOrderSearch" data-idx="' + idx + '" list="allOrderIdsList" autocomplete="off" placeholder="Type order ID (e.g. 1000)" style="margin-top:10px;">';
         html += '<div style="display:flex;gap:8px;margin-top:8px;">';
         html += '<button class="btn-secondary unmatchedAttachBtn" data-idx="' + idx + '" style="flex:1;">Attach to order</button>';
@@ -2304,8 +2314,12 @@
       html += '<p style="font-size:12.5px;color:#80868b;">' + (query ? 'No matches for that search.' : 'All shipped orders have a tracking number.') + '</p>';
     }
     needsTracking.forEach(function(o){
+      var firstItem = (o.items||[])[0];
       html += '<div class="order-card">';
       html += '<div class="order-top"><span class="order-id">#' + esc(o.id) + '</span><span style="font-size:12px;color:#9aa0a6;">' + esc(o.reseller_name) + '</span></div>';
+      if(firstItem){
+        html += '<img class="needsTrackingPhotoZoom" data-src="' + firstItem.photo_url + '" src="' + (firstItem.thumb_url || firstItem.photo_url) + '" style="width:64px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;cursor:zoom-in;margin:8px 0;">';
+      }
       html += '<div style="display:flex;gap:8px;margin-top:8px;">';
       html += '<input type="text" class="trackingNumInput" data-order="' + esc(o.id) + '" autocomplete="off" placeholder="Tracking / AWB number" style="flex:1;">';
       html += '<button class="btn-secondary saveTrackingNumBtn" data-order="' + esc(o.id) + '">Save</button>';
@@ -2505,6 +2519,9 @@
     document.querySelectorAll('.updateCourierDetectSelect').forEach(function(sel){
       sel.addEventListener('change', function(){ sel.setAttribute('data-autofilled', 'false'); });
     });
+    document.querySelectorAll('.unmatchedPhotoZoom, .needsTrackingPhotoZoom').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
 
     var trackingSearch = document.getElementById('trackingSearchInput');
     if(trackingSearch){
@@ -2650,8 +2667,10 @@
     var matchedResults = [];
     for(var i=0;i<files.length;i++){
       try{
-        var resizedBlob = await resizeImageToBlob(files[i], 1000);
-        var result = await Tesseract.recognize(resizedBlob, 'eng');
+        var resizedBlob = await resizeImageToBlob(files[i], 1400);
+        var result = await Tesseract.recognize(resizedBlob, 'eng', {
+          tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#-/:. '
+        });
         var text = (result && result.data) ? result.data.text : '';
         var match = findOrderIdInText(text);
         var matchedOrder = match ? state.orders.find(function(o){ return o.id === match; }) : null;
@@ -4026,6 +4045,100 @@
       });
     });
     return results;
+  }
+
+  // Shipped but no tracking number yet — the natural DB-backed signal for
+  // "this parcel's details still need to be filled in", so it survives
+  // page reloads and works for both the recurring reminder and the escalation.
+  function getOrdersNeedingTracking(){
+    return state.orders.filter(function(o){
+      return o.status !== 'cancelled' && orderDisplayStatus(o) === 'shipped' && !o.tracking_number;
+    });
+  }
+
+  // How long an order has been sitting shipped-but-untracked, in hours —
+  // uses the latest item's shipped_at as the moment it became fully shipped.
+  function hoursSinceShippedUntracked(o){
+    var latest = 0;
+    (o.items||[]).forEach(function(it){
+      if(it.shipped_at){ var t = new Date(it.shipped_at).getTime(); if(t > latest) latest = t; }
+    });
+    return latest ? hoursSince(new Date(latest).toISOString()) : 0;
+  }
+
+  var trackingFillReminderIntervalId = null;
+  var ALERT_TRACKING_MISSING_HOURS = 1; // escalate to admin if still unfilled this long after shipping
+
+  function checkTrackingFillReminder(){
+    if(!state.session) return;
+    if(!isAdminStaff() || isSuperAdmin()) return; // Bhagyasree only, not Rajan and not admin
+    if(document.getElementById('modalHost') && document.getElementById('modalHost').innerHTML.trim() !== '') return;
+    var entries = getOrdersNeedingTracking();
+    if(entries.length === 0) return;
+    openTrackingFillReminderModal(entries);
+  }
+
+  function openTrackingFillReminderModal(entries){
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:420px;text-align:left;max-height:85vh;overflow-y:auto;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0 0 4px;color:#f2a76a;">\ud83d\udccd Tracking still missing on ' + entries.length + ' order' + (entries.length!==1?'s':'') + '</p>';
+    html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 14px;">These are already shipped \u2014 add the tracking number for each, or close and do it later.</p>';
+    entries.forEach(function(o){
+      var firstItem = (o.items||[])[0];
+      html += '<div class="order-card">';
+      html += '<div class="order-top"><span class="order-id">#' + esc(o.id) + '</span><span style="font-size:12px;color:#9aa0a6;">' + esc(o.reseller_name) + '</span></div>';
+      if(firstItem){
+        html += '<img class="reminderTrackPhoto" data-src="' + firstItem.photo_url + '" src="' + (firstItem.thumb_url || firstItem.photo_url) + '" style="width:52px;height:66px;object-fit:cover;border-radius:8px;cursor:zoom-in;margin:8px 0;">';
+      }
+      html += '<div style="display:flex;gap:8px;">';
+      html += '<input type="text" class="reminderTrackInput" data-order="' + esc(o.id) + '" autocomplete="off" placeholder="Tracking / AWB number" style="flex:1;">';
+      html += '<button class="btn-secondary reminderTrackSaveBtn" data-order="' + esc(o.id) + '">Save</button>';
+      html += '</div></div>';
+    });
+    html += '<button class="btn-secondary" id="trackingReminderCloseBtn" style="width:100%;margin-top:6px;">Close \u2014 remind me later</button>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    wireTrackingFillReminderModal();
+  }
+
+  function wireTrackingFillReminderModal(){
+    document.getElementById('trackingReminderCloseBtn').addEventListener('click', closeModal);
+    document.querySelectorAll('.reminderTrackPhoto').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+    document.querySelectorAll('.reminderTrackInput').forEach(function(inp){
+      inp.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          var btn = document.querySelector('.reminderTrackSaveBtn[data-order="' + inp.getAttribute('data-order') + '"]');
+          if(btn) btn.click();
+        }
+      });
+    });
+    document.querySelectorAll('.reminderTrackSaveBtn').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var orderId = btn.getAttribute('data-order');
+        var inp = document.querySelector('.reminderTrackInput[data-order="' + orderId + '"]');
+        var val = (inp.value || '').trim();
+        if(!val){ showToast('Type a tracking number first'); return; }
+        var detectedCourier = detectCourierFromTracking(val);
+        var res = await saveTrackingForOrder(orderId, val, detectedCourier);
+        if(!res.ok){ showToast('Could not save: ' + res.message); return; }
+        showToast('Tracking saved for #' + orderId);
+        var remaining = getOrdersNeedingTracking();
+        if(remaining.length === 0){ closeModal(); render(); }
+        else{ openTrackingFillReminderModal(remaining); }
+      });
+    });
+  }
+
+  function startTrackingFillReminderIfNeeded(){
+    if(trackingFillReminderIntervalId) return;
+    if(!isAdminStaff() || isSuperAdmin()) return; // Bhagyasree only
+    trackingFillReminderIntervalId = setInterval(checkTrackingFillReminder, 5 * 60 * 1000);
+    setTimeout(checkTrackingFillReminder, 20000);
+  }
+  function stopTrackingFillReminder(){
+    if(trackingFillReminderIntervalId){ clearInterval(trackingFillReminderIntervalId); trackingFillReminderIntervalId = null; }
   }
 
   function getShopSummary(mode){
