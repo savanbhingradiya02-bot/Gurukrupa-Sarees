@@ -385,6 +385,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 (function(){
 
@@ -397,6 +398,11 @@
 
   var state = {
     session: null,
+    myRole: 'staff',
+    myResellerName: '',
+    urgentVal: false,
+    urgentDaysVal: '',
+    rtrackSel: {},
     orders: [],
     resellers: [],
     shops: [],
@@ -426,6 +432,13 @@
     trackingOcrProcessing: false,
     trackingUnmatched: [],
     selectedTrackingReseller: null,
+    billingQuery: '',
+    billingUnpricedOnly: false,
+    purchaseQuery: '',
+    purchasedFilter: 'pending',
+    cashTopups: [],
+    topupAmountVal: '',
+    topupNoteVal: '',
     loginError: ''
   };
 
@@ -647,6 +660,30 @@
 
   // ===== AUTH =====
 
+  // A profile row with role='reseller' switches the whole app into the
+  // reseller portal. No profile row (all current staff) = full admin app,
+  // so existing logins keep working exactly as before.
+  async function loadMyProfile(){
+    state.myRole = 'staff';
+    state.myResellerName = '';
+    if(!state.session || !state.session.user) return;
+    try{
+      var { data } = await sb.from('profiles').select('role,reseller_name').eq('id', state.session.user.id).maybeSingle();
+      if(data){
+        state.myRole = data.role || 'staff';
+        state.myResellerName = data.reseller_name || '';
+      }
+    }catch(e){ /* treat as staff */ }
+  }
+
+  function isReseller(){
+    return state.myRole === 'reseller' && !!state.myResellerName;
+  }
+
+  function isPurchaser(){
+    return state.myRole === 'purchaser';
+  }
+
   async function initAuth(){
     var { data } = await sb.auth.getSession();
     state.session = data.session;
@@ -700,19 +737,23 @@
     state.loading = true;
     render();
     try{
+      await loadMyProfile();
       // Start the 4 list queries NOW so they run in parallel with orders/items
       var listPromise = Promise.all([
         sb.from('resellers').select('name,hidden'),
         sb.from('shops').select('name,hidden'),
         sb.from('couriers').select('name,hidden'),
         sb.from('sizes').select('name,hidden'),
-        sb.from('courier_prefixes').select('prefix,courier_name')
+        sb.from('courier_prefixes').select('prefix,courier_name'),
+        sb.from('cash_topups').select('*').order('created_at', { ascending: false })
       ]);
 
-      var { data: orders, error: ordersErr } = await sb
+      var ordersQuery = sb
         .from('orders')
-        .select('*')
-        .order('id', { ascending: false })
+        .select('*');
+      if(isReseller()){ ordersQuery = ordersQuery.eq('reseller_name', state.myResellerName); }
+      var { data: orders, error: ordersErr } = await ordersQuery
+        .order('created_at', { ascending: false })
         .limit(300);
       if(ordersErr) throw ordersErr;
 
@@ -757,6 +798,7 @@
       var courierRows = listResults[2].data;
       var sizeRows = listResults[3].data;
       state.courierPrefixes = listResults[4].data || [];
+      state.cashTopups = listResults[5].data || [];
 
       var hiddenResellers = {};
       (resellerRows||[]).forEach(function(r){
@@ -825,24 +867,14 @@
     if(!exists){ list.push(val); list.sort(); }
   }
 
-  // Fetch the next order number ahead of time so Save doesn't wait ~600ms for it
-  var nextOrderIdPromise = null;
-  function prefetchOrderId(){
-    if(nextOrderIdPromise) return;
-    nextOrderIdPromise = sb.rpc('get_next_order_id').then(function(res){
-      if(res.error){ nextOrderIdPromise = null; return null; }
-      return res.data;
-    }, function(){ nextOrderIdPromise = null; return null; });
-  }
-
+  // The order number is taken ONLY at the moment Save is pressed — never
+  // earlier. Reserving it on page-open was burning numbers every time someone
+  // visited the Book tab without saving, which is why IDs had gaps and could
+  // even appear out of order. Mumbai round-trip is fast, so Save barely notices.
   async function saveOrder(name, courier, address, photoEntries, onProgress){
-    var orderId = nextOrderIdPromise ? await nextOrderIdPromise : null;
-    nextOrderIdPromise = null; // this number is now used up
-    if(!orderId){
-      var { data: idData, error: idErr } = await sb.rpc('get_next_order_id');
-      if(idErr) throw new Error('Could not get order number: ' + idErr.message);
-      orderId = idData;
-    }
+    var { data: idData, error: idErr } = await sb.rpc('get_next_order_id');
+    if(idErr) throw new Error('Could not get order number: ' + idErr.message);
+    var orderId = idData;
 
     var orderInsertPromise = sb.from('orders').insert({
       id: orderId,
@@ -850,6 +882,8 @@
       courier: courier,
       address: address,
       status: 'pending',
+      urgent: !!state.urgentVal,
+      urgent_days: state.urgentVal ? (parseInt(state.urgentDaysVal, 10) || null) : null,
       created_by: state.session.user.id
     }).select().single();
 
@@ -2359,13 +2393,15 @@
     html += '<input type="file" id="fileInput" accept="image/*" multiple style="display:none;"></div>';
 
     if(state.bookPhotos.length > 0){
-      html += '<div class="field"><label>Shop (source) &amp; size for each piece</label><div class="photo-shop-rows">';
+      html += '<div class="field"><label>' + (isReseller() ? 'Size for each piece (optional)' : 'Shop (source) &amp; size for each piece') + '</label><div class="photo-shop-rows">';
       state.bookPhotos.forEach(function(p, i){
         html += '<div class="photo-shop-row">';
         html += '<img src="' + p.previewUrl + '">';
         html += '<div class="photo-shop-row-fields">';
-        html += '<label>Photo ' + (i+1) + ' \u2014 Shop</label>';
-        html += '<input type="text" class="photoShopInput" data-idx="' + i + '" list="shopList" autocomplete="off" value="' + esc(p.shopVal||'') + '" style="margin-bottom:8px;">';
+        if(!isReseller()){
+          html += '<label>Photo ' + (i+1) + ' \u2014 Shop</label>';
+          html += '<input type="text" class="photoShopInput" data-idx="' + i + '" list="shopList" autocomplete="off" value="' + esc(p.shopVal||'') + '" style="margin-bottom:8px;">';
+        }
         html += '<label>Photo ' + (i+1) + ' \u2014 Size (optional)</label>';
         html += '<input type="text" class="photoSizeInput" data-idx="' + i + '" list="sizeList" value="' + esc(p.sizeVal||'') + '">';
         html += '</div></div>';
@@ -2374,12 +2410,42 @@
       html += '<div class="field-hint">If you enter a size, it will be stamped on the photo below the order ID</div></div>';
     }
 
-    html += '<div class="field"><label>Reseller name</label><input type="text" id="nameInput" list="resellerList" autocomplete="off" value="' + esc(state.nameVal||'') + '">';
-    html += '<div class="field-hint">Type to search \u2014 it\u2019ll snap to the full saved name. Not listed? Add it once in Manage Lists.</div></div>';
-    html += '<div class="field"><label>Courier (optional)</label><input type="text" id="courierInput" list="courierList" autocomplete="off" value="' + esc(state.courierVal||'') + '"></div>';
+    if(isReseller()){
+      html += '<div class="field"><label>Booking as</label><div style="padding:12px 14px;background:#202124;border:1px solid #3c4043;border-radius:12px;color:#f2a76a;font-weight:700;font-size:15px;">' + esc(state.myResellerName) + '</div></div>';
+    }else{
+      html += '<div class="field"><label>Reseller name</label><input type="text" id="nameInput" list="resellerList" autocomplete="off" value="' + esc(state.nameVal||'') + '">';
+      html += '<div class="field-hint">Type to search \u2014 it\u2019ll snap to the full saved name. Not listed? Add it once in Manage Lists.</div></div>';
+      html += '<div class="field"><label>Courier (optional)</label><input type="text" id="courierInput" list="courierList" autocomplete="off" value="' + esc(state.courierVal||'') + '"></div>';
+    }
     html += '<div class="field"><label>Full delivery address</label><textarea id="addressInput" rows="5" placeholder="Name, house/flat no, street, city, state, pincode, contact">' + esc(state.addressVal||'') + '</textarea></div>';
+    html += '<div class="field"><label style="display:flex;align-items:center;gap:10px;cursor:pointer;"><input type="checkbox" id="urgentChk" ' + (state.urgentVal?'checked':'') + ' style="width:20px;height:20px;accent-color:#f28b82;"> <span>\ud83d\udea8 Urgent order</span></label>';
+    if(state.urgentVal){
+      html += '<input type="number" id="urgentDaysInput" min="1" max="30" inputmode="numeric" placeholder="Deliver within how many days?" value="' + esc(state.urgentDaysVal||'') + '" style="margin-top:10px;">';
+    }
+    html += '</div>';
     if(state.bookError){ html += '<div class="error-text">' + esc(state.bookError) + '</div>'; }
     html += '<button class="btn-primary" id="saveOrderBtn" ' + (state.saving||state.processing ? 'disabled' : '') + '>' + (state.saving ? '<span class="spinner-sm"></span>Saving...' : 'Save order') + '</button>';
+
+    // Recently booked panel — quick glance at the latest orders without
+    // leaving the booking screen. Tap any photo to magnify (openZoom).
+    var recent = state.orders.slice(0, 8);
+    if(recent.length > 0){
+      html += '<div class="field" style="margin-top:30px;"><label>Recently booked</label>';
+      html += '<div style="display:flex;gap:10px;overflow-x:auto;padding:6px 2px;-webkit-overflow-scrolling:touch;">';
+      recent.forEach(function(o){
+        var first = (o.items||[])[0];
+        html += '<div style="min-width:88px;max-width:88px;text-align:center;flex-shrink:0;">';
+        if(first){
+          html += '<img class="recentThumb" data-src="' + first.photo_url + '" src="' + (first.thumb_url || first.photo_url) + '" loading="lazy" style="width:88px;height:112px;object-fit:cover;border-radius:10px;border:1px solid #3c4043;cursor:zoom-in;">';
+        }else{
+          html += '<div style="width:88px;height:112px;border-radius:10px;border:1px dashed #3c4043;"></div>';
+        }
+        html += '<div style="font-size:11px;color:#9aa0a6;margin-top:4px;">#' + esc(o.id) + (o.urgent ? ' \ud83d\udea8' : '') + '</div>';
+        html += '<div style="font-size:10px;color:#5f6368;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(o.reseller_name||'') + '</div>';
+        html += '</div>';
+      });
+      html += '</div><div class="field-hint">Tap a photo to magnify</div></div>';
+    }
     html += '</div>';
     return html;
   }
@@ -2502,6 +2568,21 @@
     });
 
     var saveBtn = document.getElementById('saveOrderBtn');
+
+    var urgentChk = document.getElementById('urgentChk');
+    if(urgentChk) urgentChk.addEventListener('change', function(){
+      state.urgentVal = urgentChk.checked;
+      render();
+      var d = document.getElementById('urgentDaysInput');
+      if(d) d.focus();
+    });
+    var urgentDaysInput = document.getElementById('urgentDaysInput');
+    if(urgentDaysInput) urgentDaysInput.addEventListener('input', function(){ state.urgentDaysVal = urgentDaysInput.value; });
+
+    document.querySelectorAll('.recentThumb').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+
     saveBtn && saveBtn.addEventListener('click', async function(){
       // Resolve any partial typing (e.g. "1191") to the full matching entry
       // one more time right before validating, in case Save was clicked
@@ -2516,18 +2597,29 @@
       state.nameVal = name;
       state.courierVal = courier;
 
+      if(isReseller()){
+        // Reseller portal: name comes from the account, courier and shop are
+        // internal details the admin fills later.
+        name = state.myResellerName;
+        courier = '';
+        state.bookPhotos.forEach(function(p){ if(!(p.shopVal||'').trim()){ p.shopVal = 'Name Pending'; } });
+      }
+
       if(state.bookPhotos.length === 0){ state.bookError = 'Add at least one photo'; render(); return; }
       if(!name){ state.bookError = 'Select a reseller'; render(); return; }
-      if(!isExactListMatch(name, state.resellers)){ state.bookError = 'Reseller "' + name + '" isn\u2019t in your list \u2014 check spelling, or add it in Manage Lists'; render(); return; }
-      if(!isExactListMatch(courier, state.couriers || [])){ state.bookError = 'Courier "' + courier + '" isn\u2019t in your list \u2014 check spelling, or add it in Manage Lists'; render(); return; }
-      var badShop = null;
-      state.bookPhotos.forEach(function(p, i){
-        if(badShop) return;
-        if(!(p.shopVal||'').trim()){ badShop = { idx: i, val: '(empty)' }; }
-        else if(!isExactListMatch(p.shopVal, state.shops)){ badShop = { idx: i, val: p.shopVal }; }
-      });
-      if(badShop){ state.bookError = 'Pick a shop for photo ' + (badShop.idx+1) + ' \u2014 use "Name Pending" if you don\u2019t know it yet'; render(); return; }
+      if(!isReseller()){
+        if(!isExactListMatch(name, state.resellers)){ state.bookError = 'Reseller "' + name + '" isn\u2019t in your list \u2014 check spelling, or add it in Manage Lists'; render(); return; }
+        if(!isExactListMatch(courier, state.couriers || [])){ state.bookError = 'Courier "' + courier + '" isn\u2019t in your list \u2014 check spelling, or add it in Manage Lists'; render(); return; }
+        var badShop = null;
+        state.bookPhotos.forEach(function(p, i){
+          if(badShop) return;
+          if(!(p.shopVal||'').trim()){ badShop = { idx: i, val: '(empty)' }; }
+          else if(!isExactListMatch(p.shopVal, state.shops)){ badShop = { idx: i, val: p.shopVal }; }
+        });
+        if(badShop){ state.bookError = 'Pick a shop for photo ' + (badShop.idx+1) + ' \u2014 use "Name Pending" if you don\u2019t know it yet'; render(); return; }
+      }
       if(!address){ state.bookError = 'Enter delivery address'; render(); return; }
+      if(state.urgentVal && !(parseInt(state.urgentDaysVal, 10) >= 1)){ state.bookError = 'Urgent order \u2014 enter how many days for delivery'; render(); return; }
       state.bookError = '';
       state.saving = true;
       render();
@@ -2547,6 +2639,7 @@
         });
         state.bookPhotos = [];
         state.nameVal = ''; state.courierVal = ''; state.addressVal = '';
+        state.urgentVal = false; state.urgentDaysVal = '';
         state.saving = false;
         state.tab = 'orders';
         render();
@@ -2588,6 +2681,9 @@
       var pillText = statusLabel[ds];
       if(ds === 'partial') pillText = prog.shippedCount + ' of ' + prog.total + ' shipped';
       html += '<span class="status-pill ' + statusClass[ds] + '">' + pillText + '</span></div>';
+      if(o.urgent){
+        html += '<div style="margin:2px 0 4px;"><span style="font-size:11px;font-weight:800;color:#f28b82;background:rgba(242,139,130,0.12);border:1px solid rgba(242,139,130,0.45);padding:2px 10px;border-radius:12px;">\ud83d\udea8 URGENT' + (o.urgent_days ? ' \u00b7 deliver in ' + o.urgent_days + ' day' + (o.urgent_days > 1 ? 's' : '') : '') + '</span></div>';
+      }
       html += '<div class="booking-time">Booked: ' + formatTime(o.created_at) + '</div>';
       html += '<div class="activity-log">Booked by ' + esc(o.created_by_email || 'staff');
       if(o.cancelled_at) html += ' \u00b7 Cancelled by ' + esc(o.cancelled_by_email || 'staff') + ' ' + formatTime(o.cancelled_at);
@@ -2596,9 +2692,12 @@
       (o.items||[]).forEach(function(item, idx){
         var shippedClass = item.status === 'shipped' ? ' shipped-item' : '';
         html += '<div class="item-wrap' + shippedClass + '">';
-        if(item.status === 'shipped'){ html += '<button class="item-shipped-tag" data-revert-item="' + item.id + '" title="Tap to mark just this piece pending">Shipped \u21ba</button>'; }
+        if(item.status === 'shipped'){
+          if(isReseller()){ html += '<span class="item-shipped-tag" style="pointer-events:none;">Shipped</span>'; }
+          else { html += '<button class="item-shipped-tag" data-revert-item="' + item.id + '" title="Tap to mark just this piece pending">Shipped \u21ba</button>'; }
+        }
         html += '<img data-src="' + item.photo_url + '" class="orderPhoto" src="' + (item.thumb_url || item.photo_url) + '" loading="lazy" decoding="async">';
-        if(item.shop_name){ html += '<span class="shop-name-tag">' + esc(item.shop_name) + '</span>'; }
+        if(item.shop_name && !isReseller()){ html += '<span class="shop-name-tag">' + esc(item.shop_name) + '</span>'; }
         html += '</div>';
       });
       html += '</div>';
@@ -2608,18 +2707,27 @@
       if(ds === 'cancelled' && o.cancel_reason){ html += '<span class="order-cancel-note">Cancelled: ' + esc(o.cancel_reason) + '</span>'; }
       html += '<p class="order-address">' + highlightText(o.address, q) + '</p>';
       html += '<div class="order-actions">';
-      if(ds === 'cancelled'){
-        html += '<button class="btn-unship" data-unship="' + o.id + '">Reactivate</button>';
+      if(isReseller()){
+        // Resellers can look and share — never change status, edit, or delete.
+        if(o.tracking_number){
+          html += '<button class="btn-secondary shareOneTrackingBtn" data-order="' + o.id + '">\ud83d\udce4 Share tracking</button>';
+        }else{
+          html += '<span style="font-size:12px;color:#9aa0a6;align-self:center;">Tracking number coming soon</span>';
+        }
       }else{
-        if(ds !== 'shipped'){ html += '<button class="btn-ship" data-ship="' + o.id + '">Mark all shipped</button>'; }
-        if(ds !== 'pending'){ html += '<button class="btn-unship" data-unship="' + o.id + '">Mark all pending</button>'; }
-        html += '<button class="btn-cancel" data-cancel="' + o.id + '">Cancel</button>';
+        if(ds === 'cancelled'){
+          html += '<button class="btn-unship" data-unship="' + o.id + '">Reactivate</button>';
+        }else{
+          if(ds !== 'shipped'){ html += '<button class="btn-ship" data-ship="' + o.id + '">Mark all shipped</button>'; }
+          if(ds !== 'pending'){ html += '<button class="btn-unship" data-unship="' + o.id + '">Mark all pending</button>'; }
+          html += '<button class="btn-cancel" data-cancel="' + o.id + '">Cancel</button>';
+        }
+        if(o.tracking_number && (ds === 'shipped' || ds === 'partial')){
+          html += '<button class="btn-secondary shareOneTrackingBtn" data-order="' + o.id + '">\ud83d\udce4 Share tracking</button>';
+        }
+        html += '<button class="btn-edit" data-edit="' + o.id + '">\u270f\ufe0f</button>';
+        html += '<button class="btn-del" data-del="' + o.id + '">\ud83d\uddd1</button>';
       }
-      if(o.tracking_number && (ds === 'shipped' || ds === 'partial')){
-        html += '<button class="btn-secondary shareOneTrackingBtn" data-order="' + o.id + '">\ud83d\udce4 Share tracking</button>';
-      }
-      html += '<button class="btn-edit" data-edit="' + o.id + '">\u270f\ufe0f</button>';
-      html += '<button class="btn-del" data-del="' + o.id + '">\ud83d\uddd1</button>';
       html += '</div></div>';
     });
     return html;
@@ -3418,6 +3526,480 @@
     if(sizeDl) sizeDl.innerHTML = (state.sizes||[]).map(function(s){ return '<option value="' + esc(s) + '">'; }).join('');
   }
 
+  // ===== PURCHASE TRACKING (Rajan / pickup staff) =====
+
+  async function markItemPurchased(itemId, rate, method){
+    var item = null;
+    state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(it.id === itemId){ item = it; } }); });
+    if(!item) return;
+    var rateNum = Number(rate);
+    if(!rate || isNaN(rateNum) || rateNum <= 0){ showToast('Enter a valid purchase rate'); return; }
+    if(!method){ showToast('Select a payment method'); return; }
+    if(method === 'cash'){
+      var bal = getCashBalance();
+      if(rateNum > bal.available){
+        showToast('Only \u20b9' + bal.available.toLocaleString('en-IN') + ' available in cash \u2014 ask Soham to top up');
+        return;
+      }
+    }
+    var prev = { purchased: item.purchased, purchase_rate: item.purchase_rate, payment_method: item.payment_method };
+    item.purchased = true;
+    item.purchase_rate = rateNum;
+    item.payment_method = method;
+    item.purchased_at = new Date().toISOString();
+    render();
+    try{
+      var { error } = await sb.from('order_items').update({
+        purchased: true, purchase_rate: rateNum, payment_method: method,
+        purchased_at: item.purchased_at, purchased_by: state.session.user.id
+      }).eq('id', itemId);
+      if(error) throw error;
+      showToast('Marked purchased \u2014 \u20b9' + rateNum + ' (' + method + ')');
+    }catch(e){
+      item.purchased = prev.purchased; item.purchase_rate = prev.purchase_rate; item.payment_method = prev.payment_method;
+      showToast('Could not save: ' + (e && e.message ? e.message : 'try again'));
+    }
+    render();
+  }
+
+  async function unmarkItemPurchased(itemId){
+    var item = null;
+    state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(it.id === itemId){ item = it; } }); });
+    if(!item) return;
+    var prev = { purchased: item.purchased, purchase_rate: item.purchase_rate, payment_method: item.payment_method };
+    item.purchased = false; item.purchase_rate = null; item.payment_method = null;
+    render();
+    try{
+      var { error } = await sb.from('order_items').update({ purchased: false, purchase_rate: null, payment_method: null, purchased_at: null, purchased_by: null }).eq('id', itemId);
+      if(error) throw error;
+    }catch(e){
+      item.purchased = prev.purchased; item.purchase_rate = prev.purchase_rate; item.payment_method = prev.payment_method;
+      showToast('Could not undo: ' + (e && e.message ? e.message : 'try again'));
+    }
+    render();
+  }
+
+  function renderPurchaseTab(){
+    if(state.loading){ return '<div class="loading-state"><span class="spinner"></span>Loading...</div>'; }
+    var bal = getCashBalance();
+    var q = (state.purchaseQuery||'').trim().toLowerCase();
+    var rows = [];
+    state.orders.forEach(function(o){
+      if(o.status === 'cancelled') return;
+      (o.items||[]).forEach(function(it, idx){
+        if(state.purchasedFilter === 'pending' && it.purchased) return;
+        if(state.purchasedFilter === 'purchased' && !it.purchased) return;
+        var hay = (o.reseller_name+' '+o.id+' '+(it.shop_name||'')+' '+(it.size||'')).toLowerCase();
+        if(q && hay.indexOf(q) === -1) return;
+        rows.push({ order: o, item: it, pieceLabel: o.id + '-' + (idx+1) });
+      });
+    });
+
+    var html = '<div class="order-card" style="text-align:center;padding:16px;margin-bottom:16px;">';
+    html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 4px;">Cash available</p>';
+    html += '<p style="font-size:26px;font-weight:800;color:' + (bal.available < 0 ? '#f28b82' : '#7fd99a') + ';margin:0 0 6px;">\u20b9 ' + bal.available.toLocaleString('en-IN') + '</p>';
+    html += '<p style="font-size:11.5px;color:#9aa0a6;margin:0;">Topped up \u20b9' + bal.topped.toLocaleString('en-IN') + ' \u00b7 Used \u20b9' + bal.used.toLocaleString('en-IN') + '</p>';
+    html += '</div>';
+
+    html += '<input class="searchbar" type="text" id="purchaseSearchInput" placeholder="Search shop, reseller, order id" value="' + esc(state.purchaseQuery) + '">';
+    html += '<div class="filters">';
+    ['pending','purchased','all'].forEach(function(f){
+      html += '<div class="filter-chip' + (state.purchasedFilter===f?' active':'') + '" data-pfilter="' + f + '">' + f.charAt(0).toUpperCase()+f.slice(1) + '</div>';
+    });
+    html += '</div>';
+
+    if(rows.length === 0){
+      html += '<div class="empty-state">' + (state.purchasedFilter==='pending' ? 'Nothing left to purchase.' : 'No pieces match.') + '</div>';
+      return html;
+    }
+
+    rows.forEach(function(r){
+      var o = r.order, it = r.item;
+      html += '<div class="order-card">';
+      html += '<div style="display:flex;gap:12px;align-items:flex-start;">';
+      html += '<img class="purchaseThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url || it.photo_url) + '" style="width:60px;height:76px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;flex-shrink:0;cursor:zoom-in;">';
+      html += '<div style="flex:1;min-width:0;">';
+      html += '<div><span class="order-id">#' + esc(r.pieceLabel) + '</span>' + (o.urgent ? ' <span style="font-size:11px;color:#f28b82;">\ud83d\udea8</span>' : '') + '</div>';
+      html += '<div style="font-size:13px;color:#e8eaed;font-weight:600;margin-top:3px;">' + esc(it.shop_name || 'Name Pending') + '</div>';
+      html += '<div style="font-size:11.5px;color:#9aa0a6;">Booked by ' + esc(o.reseller_name||'') + (it.size ? ' \u00b7 Size ' + esc(it.size) : '') + '</div>';
+      html += '</div></div>';
+
+      if(it.purchased){
+        html += '<div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;background:rgba(127,217,154,0.08);border:1px solid rgba(127,217,154,0.35);border-radius:10px;padding:8px 12px;">';
+        html += '<span style="font-size:13px;color:#7fd99a;font-weight:600;">\u2713 \u20b9' + esc(String(it.purchase_rate)) + ' \u00b7 ' + esc((it.payment_method||'').toUpperCase()) + '</span>';
+        html += '<button class="btn-secondary purchaseUndoBtn" data-item="' + it.id + '" style="font-size:11.5px;padding:5px 10px;">Undo</button>';
+        html += '</div>';
+      }else{
+        html += '<div style="margin-top:10px;display:flex;gap:8px;">';
+        html += '<input type="number" min="0" inputmode="decimal" class="purchaseRateInput" data-item="' + it.id + '" placeholder="Rate \u20b9" style="flex:1;min-width:0;">';
+        html += '<select class="purchaseMethodSelect" data-item="' + it.id + '" style="flex:1;min-width:0;padding:10px 8px;border-radius:10px;border:1px solid #3c4043;background:#202124;color:#e8eaed;font-size:13px;">';
+        html += '<option value="">Payment</option><option value="cash">Cash</option><option value="gpay">GPay</option><option value="challan">Challan</option>';
+        html += '</select>';
+        html += '<button class="btn-primary purchaseSaveBtn" data-item="' + it.id + '" style="width:auto;padding:10px 16px;flex-shrink:0;">\u2713</button>';
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    return html;
+  }
+
+  function wirePurchaseTab(){
+    var search = document.getElementById('purchaseSearchInput');
+    if(search) search.addEventListener('input', function(){
+      state.purchaseQuery = search.value;
+      var content = document.getElementById('tabContent');
+      content.innerHTML = renderPurchaseTab();
+      wirePurchaseTab();
+    });
+    document.querySelectorAll('[data-pfilter]').forEach(function(chip){
+      chip.addEventListener('click', function(){
+        state.purchasedFilter = chip.getAttribute('data-pfilter');
+        var content = document.getElementById('tabContent');
+        content.innerHTML = renderPurchaseTab();
+        wirePurchaseTab();
+      });
+    });
+    document.querySelectorAll('.purchaseThumb').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+    document.querySelectorAll('.purchaseSaveBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var itemId = parseInt(btn.getAttribute('data-item'), 10);
+        var rateInp = document.querySelector('.purchaseRateInput[data-item="' + itemId + '"]');
+        var methodSel = document.querySelector('.purchaseMethodSelect[data-item="' + itemId + '"]');
+        markItemPurchased(itemId, rateInp ? rateInp.value.trim() : '', methodSel ? methodSel.value : '');
+      });
+    });
+    document.querySelectorAll('.purchaseUndoBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){ unmarkItemPurchased(parseInt(btn.getAttribute('data-item'), 10)); });
+    });
+  }
+
+  // ===== ADMIN: PURCHASE LEDGER (cash topups + full purchase record) =====
+
+  async function addCashTopup(){
+    var amount = Number(state.topupAmountVal);
+    if(!amount || isNaN(amount) || amount <= 0){ showToast('Enter a valid top-up amount'); return; }
+    try{
+      var { data, error } = await sb.from('cash_topups').insert({
+        amount: amount, note: (state.topupNoteVal||'').trim() || null, created_by: state.session.user.id
+      }).select().single();
+      if(error) throw error;
+      state.cashTopups.unshift(data);
+      state.topupAmountVal = ''; state.topupNoteVal = '';
+      showToast('Added \u20b9' + amount.toLocaleString('en-IN') + ' to Rajan\u2019s cash float');
+      render();
+    }catch(e){
+      showToast('Could not add top-up: ' + (e && e.message ? e.message : 'try again'));
+    }
+  }
+
+  function renderPurchaseLedgerTab(){
+    if(state.loading){ return '<div class="loading-state"><span class="spinner"></span>Loading...</div>'; }
+    var bal = getCashBalance();
+    var html = '<div class="order-card" style="padding:16px;margin-bottom:16px;">';
+    html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 10px;text-align:center;">Rajan\u2019s cash float</p>';
+    html += '<div style="display:flex;justify-content:space-around;text-align:center;margin-bottom:14px;">';
+    html += '<div><div style="font-size:11px;color:#9aa0a6;">Topped up</div><div style="font-size:16px;font-weight:700;color:#e8eaed;">\u20b9' + bal.topped.toLocaleString('en-IN') + '</div></div>';
+    html += '<div><div style="font-size:11px;color:#9aa0a6;">Used</div><div style="font-size:16px;font-weight:700;color:#f2a76a;">\u20b9' + bal.used.toLocaleString('en-IN') + '</div></div>';
+    html += '<div><div style="font-size:11px;color:#9aa0a6;">Available</div><div style="font-size:16px;font-weight:700;color:' + (bal.available<0?'#f28b82':'#7fd99a') + ';">\u20b9' + bal.available.toLocaleString('en-IN') + '</div></div>';
+    html += '</div>';
+    html += '<div style="display:flex;gap:8px;">';
+    html += '<input type="number" min="0" id="topupAmountInput" placeholder="Amount \u20b9" value="' + esc(state.topupAmountVal) + '" style="flex:1;min-width:0;">';
+    html += '<input type="text" id="topupNoteInput" placeholder="Note (optional)" value="' + esc(state.topupNoteVal) + '" style="flex:1;min-width:0;">';
+    html += '<button class="btn-primary" id="addTopupBtn" style="width:auto;padding:10px 16px;flex-shrink:0;">Add</button>';
+    html += '</div></div>';
+
+    var allItems = [];
+    state.orders.forEach(function(o){
+      if(o.status === 'cancelled') return;
+      (o.items||[]).forEach(function(it, idx){ allItems.push({ order: o, item: it, pieceLabel: o.id + '-' + (idx+1) }); });
+    });
+    var purchasedCount = allItems.filter(function(r){ return r.item.purchased; }).length;
+    html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 10px;">' + purchasedCount + ' of ' + allItems.length + ' pieces purchased</p>';
+
+    allItems.filter(function(r){ return r.item.purchased; })
+      .sort(function(a,b){ return new Date(b.item.purchased_at||0) - new Date(a.item.purchased_at||0); })
+      .forEach(function(r){
+        var o = r.order, it = r.item;
+        html += '<div class="order-card" style="display:flex;gap:12px;align-items:center;">';
+        html += '<img class="ledgerThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url || it.photo_url) + '" style="width:52px;height:66px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;flex-shrink:0;cursor:zoom-in;">';
+        html += '<div style="flex:1;min-width:0;">';
+        html += '<div><span class="order-id">#' + esc(r.pieceLabel) + '</span></div>';
+        html += '<div style="font-size:12.5px;color:#e8eaed;">' + esc(it.shop_name||'') + ' \u00b7 ' + esc(o.reseller_name||'') + '</div>';
+        html += '<div style="font-size:12px;color:#7fd99a;font-weight:600;">\u20b9' + esc(String(it.purchase_rate)) + ' \u00b7 ' + esc((it.payment_method||'').toUpperCase()) + '</div>';
+        html += '</div></div>';
+      });
+    return html;
+  }
+
+  function wirePurchaseLedgerTab(){
+    var amtInp = document.getElementById('topupAmountInput');
+    var noteInp = document.getElementById('topupNoteInput');
+    if(amtInp) amtInp.addEventListener('input', function(){ state.topupAmountVal = amtInp.value; });
+    if(noteInp) noteInp.addEventListener('input', function(){ state.topupNoteVal = noteInp.value; });
+    var addBtn = document.getElementById('addTopupBtn');
+    if(addBtn) addBtn.addEventListener('click', addCashTopup);
+    document.querySelectorAll('.ledgerThumb').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+  }
+
+  // ===== ADMIN BILLING =====
+
+  function getCashBalance(){
+    var topped = (state.cashTopups||[]).reduce(function(sum, t){ return sum + (Number(t.amount)||0); }, 0);
+    var used = 0;
+    state.orders.forEach(function(o){
+      (o.items||[]).forEach(function(it){
+        if(it.purchased && it.payment_method === 'cash'){ used += Number(it.purchase_rate) || 0; }
+      });
+    });
+    return { topped: topped, used: used, available: topped - used };
+  }
+
+  async function updateItemPrice(itemId, rawValue){
+    var price = rawValue === '' ? null : Number(rawValue);
+    if(price !== null && (isNaN(price) || price < 0)){ showToast('Enter a valid price'); render(); return; }
+    var item = null;
+    state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(it.id === itemId){ item = it; } }); });
+    if(!item) return;
+    var prev = item.price;
+    item.price = price;
+    try{
+      var { error } = await sb.from('order_items').update({ price: price }).eq('id', itemId);
+      if(error) throw error;
+    }catch(e){
+      item.price = prev;
+      showToast('Could not save price: ' + (e && e.message ? e.message : 'try again'));
+      render();
+    }
+  }
+
+  function renderBillingTab(){
+    if(state.loading){ return '<div class="loading-state"><span class="spinner"></span>Loading...</div>'; }
+    var q = (state.billingQuery || '').trim().toLowerCase();
+    var rows = [];
+    state.orders.forEach(function(o){
+      if(o.status === 'cancelled') return;
+      (o.items||[]).forEach(function(it, idx){
+        var hay = (o.reseller_name + ' ' + o.id + ' ' + (it.size||'')).toLowerCase();
+        if(q && hay.indexOf(q) === -1) return;
+        if(state.billingUnpricedOnly && it.price != null && it.price !== '') return;
+        rows.push({ order: o, item: it, pieceLabel: o.id + '-' + (idx+1) });
+      });
+    });
+    var totalAll = 0, pricedCount = 0, totalCount = 0;
+    state.orders.forEach(function(o){
+      if(o.status === 'cancelled') return;
+      (o.items||[]).forEach(function(it){
+        totalCount++;
+        if(it.price != null && it.price !== ''){ pricedCount++; totalAll += Number(it.price) || 0; }
+      });
+    });
+
+    var html = '<div class="order-card" style="text-align:center;padding:16px;margin-bottom:16px;">';
+    html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 4px;">' + pricedCount + ' of ' + totalCount + ' pieces priced</p>';
+    html += '<p style="font-size:22px;font-weight:800;color:#f2a76a;margin:0;">\u20b9 ' + totalAll.toLocaleString('en-IN') + '</p>';
+    html += '</div>';
+
+    html += '<input class="searchbar" type="text" id="billingSearchInput" placeholder="Search reseller, order id, size" value="' + esc(state.billingQuery) + '">';
+    html += '<div class="filters"><div class="filter-chip' + (state.billingUnpricedOnly?' active':'') + '" id="billingUnpricedChip">Unpriced only</div></div>';
+
+    if(rows.length === 0){
+      html += '<div class="empty-state">No pieces match.</div>';
+      return html;
+    }
+
+    rows.forEach(function(r){
+      var o = r.order, it = r.item;
+      html += '<div class="order-card" style="display:flex;gap:12px;align-items:center;">';
+      html += '<img class="billingThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url || it.photo_url) + '" style="width:56px;height:70px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;flex-shrink:0;cursor:zoom-in;">';
+      html += '<div style="flex:1;min-width:0;">';
+      html += '<div><span class="order-id">#' + esc(r.pieceLabel) + '</span>' + (o.urgent ? ' <span style="font-size:11px;color:#f28b82;">\ud83d\udea8</span>' : '') + '</div>';
+      html += '<div style="font-size:13px;color:#e8eaed;font-weight:600;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(o.reseller_name||'') + '</div>';
+      if(it.size){ html += '<div style="font-size:12px;color:#9aa0a6;">Size: ' + esc(it.size) + '</div>'; }
+      html += '</div>';
+      html += '<div style="flex-shrink:0;display:flex;align-items:center;gap:4px;">';
+      html += '<span style="color:#9aa0a6;font-size:14px;">\u20b9</span>';
+      html += '<input type="number" min="0" inputmode="decimal" class="billingPriceInput" data-item="' + it.id + '" placeholder="\u2014" value="' + (it.price != null ? esc(String(it.price)) : '') + '" style="width:84px;padding:8px 10px;">';
+      html += '</div>';
+      html += '</div>';
+    });
+    return html;
+  }
+
+  function wireBillingTab(){
+    var search = document.getElementById('billingSearchInput');
+    if(search) search.addEventListener('input', function(){
+      state.billingQuery = search.value;
+      var content = document.getElementById('tabContent');
+      content.innerHTML = renderBillingTab();
+      wireBillingTab();
+    });
+    var chip = document.getElementById('billingUnpricedChip');
+    if(chip) chip.addEventListener('click', function(){
+      state.billingUnpricedOnly = !state.billingUnpricedOnly;
+      var content = document.getElementById('tabContent');
+      content.innerHTML = renderBillingTab();
+      wireBillingTab();
+    });
+    document.querySelectorAll('.billingThumb').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+    document.querySelectorAll('.billingPriceInput').forEach(function(inp){
+      inp.addEventListener('change', function(){
+        updateItemPrice(parseInt(inp.getAttribute('data-item'), 10), inp.value.trim());
+      });
+      inp.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){ e.preventDefault(); inp.blur(); }
+      });
+    });
+  }
+
+  // ===== RESELLER PORTAL: TRACKING + BILLING =====
+
+  function renderResellerTrackTab(){
+    if(state.loading){ return '<div class="loading-state"><span class="spinner"></span>Loading...</div>'; }
+    var withTrack = state.orders.filter(function(o){ return o.tracking_number && o.status !== 'cancelled'; });
+    var selCount = Object.keys(state.rtrackSel).filter(function(k){ return state.rtrackSel[k]; }).length;
+    var html = '<p style="font-size:13px;color:#9aa0a6;margin:0 0 12px;">Tracking numbers for your orders. Tick several and share them to WhatsApp in one message.</p>';
+    html += '<button class="btn-primary" id="shareSelectedTrackBtn" ' + (selCount === 0 ? 'disabled' : '') + ' style="margin-bottom:16px;">\ud83d\udce4 Share selected' + (selCount > 0 ? ' (' + selCount + ')' : '') + '</button>';
+    if(withTrack.length === 0){
+      html += '<div class="empty-state">No tracking numbers yet \u2014 they appear here as soon as your orders are shipped.</div>';
+    }
+    withTrack.forEach(function(o){
+      var checked = state.rtrackSel[o.id] ? 'checked' : '';
+      var first = (o.items||[])[0];
+      var detectedCourier = detectCourierFromTracking(o.tracking_number);
+      var effCourier = detectedCourier || o.courier || '';
+      html += '<div class="order-card" style="display:flex;gap:12px;align-items:center;">';
+      html += '<input type="checkbox" class="rtrackChk" data-order="' + esc(o.id) + '" ' + checked + ' style="width:22px;height:22px;flex-shrink:0;accent-color:#d97a3f;">';
+      if(first){ html += '<img class="rtrackThumb" data-src="' + first.photo_url + '" src="' + (first.thumb_url || first.photo_url) + '" style="width:52px;height:66px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;flex-shrink:0;cursor:zoom-in;">'; }
+      html += '<div style="flex:1;min-width:0;">';
+      html += '<div><span class="order-id">#' + esc(o.id) + '</span>' + (o.urgent ? ' <span style="font-size:11px;color:#f28b82;">\ud83d\udea8</span>' : '') + '</div>';
+      html += '<div style="font-size:13px;color:#e8eaed;font-weight:600;word-break:break-all;margin-top:4px;">' + esc(o.tracking_number) + '</div>';
+      if(effCourier){ html += '<div style="font-size:11.5px;color:#9aa0a6;">' + esc(effCourier) + '</div>'; }
+      html += '</div>';
+      html += '<button class="btn-secondary rtrackShareOneBtn" data-order="' + esc(o.id) + '" style="flex-shrink:0;">\ud83d\udce4</button>';
+      html += '</div>';
+    });
+    return html;
+  }
+
+  function wireResellerTrackTab(){
+    document.querySelectorAll('.rtrackChk').forEach(function(chk){
+      chk.addEventListener('change', function(){
+        var id = chk.getAttribute('data-order');
+        if(chk.checked){ state.rtrackSel[id] = true; } else { delete state.rtrackSel[id]; }
+        render();
+      });
+    });
+    document.querySelectorAll('.rtrackThumb').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+    document.querySelectorAll('.rtrackShareOneBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var ord = state.orders.find(function(o){ return o.id === btn.getAttribute('data-order'); });
+        if(ord) shareOneOrderTracking(ord, btn);
+      });
+    });
+    var shareBtn = document.getElementById('shareSelectedTrackBtn');
+    if(shareBtn) shareBtn.addEventListener('click', function(){ shareSelectedTracking(shareBtn); });
+  }
+
+  async function shareSelectedTracking(btn){
+    var selected = state.orders.filter(function(o){ return state.rtrackSel[o.id] && o.tracking_number; });
+    if(selected.length === 0) return;
+    if(!navigator.share){
+      showToast('Sharing isn\u2019t supported on this browser \u2014 try on your phone');
+      return;
+    }
+    var batch = selected.slice(0, 10);
+    var originalText = btn ? btn.textContent : '';
+    if(btn){ btn.disabled = true; btn.textContent = 'Preparing...'; }
+    var messageText = batch.map(buildTrackingShareText).join('\n\n');
+    try{
+      var withPhoto = batch.filter(function(o){ return o.tracking_photo_url; });
+      var files = await Promise.all(withPhoto.map(async function(o){
+        var res = await fetch(o.tracking_photo_url);
+        var blob = await res.blob();
+        return new File([blob], 'tracking_' + o.id + '.jpg', { type: 'image/jpeg' });
+      }));
+      var shareData = files.length > 0 ? { files: files, text: messageText } : { text: messageText };
+      if(files.length > 0 && navigator.canShare && !navigator.canShare(shareData)){
+        shareData = { text: messageText }; // fall back to text-only rather than failing
+      }
+      await navigator.share(shareData);
+      state.rtrackSel = {};
+      showToast('Tracking shared for ' + batch.length + ' order' + (batch.length !== 1 ? 's' : ''));
+      render();
+    }catch(err){
+      if(!(err && err.name === 'AbortError')){
+        showToast('Could not share: ' + (err && err.message ? err.message : 'try again'));
+      }
+    }
+    if(btn){ btn.disabled = false; btn.textContent = originalText; }
+  }
+
+  function renderResellerBillTab(){
+    if(state.loading){ return '<div class="loading-state"><span class="spinner"></span>Loading...</div>'; }
+    var pieces = 0, priced = 0, total = 0;
+    state.orders.forEach(function(o){
+      if(o.status === 'cancelled') return;
+      (o.items||[]).forEach(function(it){
+        pieces++;
+        if(it.price != null && it.price !== ''){ priced++; total += Number(it.price) || 0; }
+      });
+    });
+    var html = '<div class="order-card" style="text-align:center;padding:24px 16px;">';
+    html += '<p style="font-size:15px;font-weight:700;color:#e8eaed;margin:0 0 6px;">Billing \u2014 ' + esc(state.myResellerName) + '</p>';
+    html += '<p style="font-size:13px;color:#9aa0a6;margin:0 0 4px;">' + pieces + ' piece' + (pieces !== 1 ? 's' : '') + ' \u00b7 ' + priced + ' priced</p>';
+    html += '<p style="font-size:22px;font-weight:800;color:#f2a76a;margin:0 0 18px;">\u20b9 ' + total.toLocaleString('en-IN') + '</p>';
+    html += '<button class="btn-primary" id="downloadBillBtn" ' + (pieces === 0 ? 'disabled' : '') + '>\u2b07\ufe0f Download bill (Excel)</button>';
+    html += '<div class="field-hint" style="margin-top:14px;">Prices are added by Gurukrupa. Pieces not priced yet show blank in the sheet.</div>';
+    html += '</div>';
+    return html;
+  }
+
+  function wireResellerBillTab(){
+    var btn = document.getElementById('downloadBillBtn');
+    if(btn) btn.addEventListener('click', downloadBillExcel);
+  }
+
+  function downloadBillExcel(){
+    if(typeof XLSX === 'undefined'){
+      showToast('Excel engine is still loading \u2014 try again in a few seconds');
+      return;
+    }
+    var rows = [['Order ID', 'Piece', 'Booked date', 'Size', 'Status', 'Tracking', 'Price (Rs)']];
+    var total = 0;
+    state.orders.slice().reverse().forEach(function(o){
+      if(o.status === 'cancelled') return;
+      (o.items||[]).forEach(function(it, idx){
+        var price = (it.price != null && it.price !== '') ? Number(it.price) : '';
+        if(price !== ''){ total += price; }
+        rows.push([
+          o.id,
+          o.id + '-' + (idx + 1),
+          (o.created_at || '').slice(0, 10),
+          it.size || '',
+          it.status || '',
+          o.tracking_number || '',
+          price
+        ]);
+      });
+    });
+    rows.push([]);
+    rows.push(['', '', '', '', '', 'TOTAL', total]);
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:10},{wch:10},{wch:12},{wch:8},{wch:10},{wch:20},{wch:12}];
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Bill');
+    var safeName = (state.myResellerName || 'bill').replace(/[^A-Za-z0-9]+/g, '_');
+    XLSX.writeFile(wb, 'Gurukrupa_Bill_' + safeName + '_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  }
+
   function render(){
     var appEl = document.getElementById('app');
     if(!state.session){
@@ -3431,37 +4013,75 @@
 
     var shellHtml = '<div class="brand-wrap"><div class="menu-row no-print"><button class="menu-btn" id="sidebarOpenBtn"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></div><div class="app-brand" id="logoReloadBtn" style="cursor:pointer;">GURUKRUPA</div><div class="app-brand-sub">SAREES</div></div>';
     shellHtml += '<div class="tabs no-print">';
-    shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook"><span class="tab-icon">\ud83d\udcf8</span>Book Orders</div>';
-    shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders"><span class="tab-icon">\ud83d\udccb</span>Orders List' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
-    shellHtml += '<div class="tab-btn' + (state.tab==='ship'?' active':'') + '" id="tabBtnShip"><span class="tab-icon">\ud83d\udce6</span>Ship Album</div>';
-    shellHtml += '<div class="tab-btn' + (state.tab==='shops'?' active':'') + '" id="tabBtnShops"><span class="tab-icon">\ud83c\udfea</span>Shop Booking</div>';
-    shellHtml += '<div class="tab-btn' + (state.tab==='tracking'?' active':'') + '" id="tabBtnTracking"><span class="tab-icon">\ud83d\udccd</span>Tracking</div>';
+    if(isReseller()){
+      shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook"><span class="tab-icon">\ud83d\udcf8</span>Book Order</div>';
+      shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders"><span class="tab-icon">\ud83d\udccb</span>My Orders' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
+      shellHtml += '<div class="tab-btn' + (state.tab==='rtrack'?' active':'') + '" id="tabBtnRTrack"><span class="tab-icon">\ud83d\udccd</span>Tracking</div>';
+      shellHtml += '<div class="tab-btn' + (state.tab==='rbill'?' active':'') + '" id="tabBtnRBill"><span class="tab-icon">\ud83e\uddfe</span>Billing</div>';
+    }else if(isPurchaser()){
+      shellHtml += '<div class="tab-btn active" id="tabBtnPurchase"><span class="tab-icon">\ud83d\uded2</span>Purchase</div>';
+    }else{
+      shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" id="tabBtnBook"><span class="tab-icon">\ud83d\udcf8</span>Book Orders</div>';
+      shellHtml += '<div class="tab-btn' + (state.tab==='orders'?' active':'') + '" id="tabBtnOrders"><span class="tab-icon">\ud83d\udccb</span>Orders List' + (pendingCount>0 ? '<span class="badge">'+pendingCount+'</span>' : '') + '</div>';
+      shellHtml += '<div class="tab-btn' + (state.tab==='ship'?' active':'') + '" id="tabBtnShip"><span class="tab-icon">\ud83d\udce6</span>Ship Album</div>';
+      shellHtml += '<div class="tab-btn' + (state.tab==='shops'?' active':'') + '" id="tabBtnShops"><span class="tab-icon">\ud83c\udfea</span>Shop Booking</div>';
+      shellHtml += '<div class="tab-btn' + (state.tab==='tracking'?' active':'') + '" id="tabBtnTracking"><span class="tab-icon">\ud83d\udccd</span>Tracking</div>';
+    }
     shellHtml += '</div><div id="tabContent"></div>';
     shellHtml += '<div class="sidebar-overlay" id="sidebarOverlay"></div>';
     shellHtml += '<div class="sidebar-panel" id="sidebarPanel">';
     shellHtml += '<div class="sidebar-top-row"><button class="sidebar-close" id="sidebarCloseBtn">\u00d7</button></div>';
-    shellHtml += '<div class="sidebar-identity"><div class="user-avatar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#f2a76a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 3.5-7 8-7s8 3 8 7"></path></svg></div><span>' + esc(currentUserLabel()) + '</span></div>';
-    shellHtml += '<button id="manageListsBtn">Manage Lists</button>';
-    shellHtml += '<button id="printHistoryBtn">Print History</button>';
+    shellHtml += '<div class="sidebar-identity"><div class="user-avatar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#f2a76a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 3.5-7 8-7s8 3 8 7"></path></svg></div><span>' + esc(isReseller() ? state.myResellerName : (isPurchaser() ? 'Rajan (Purchase)' : currentUserLabel())) + '</span></div>';
+    if(!isReseller() && !isPurchaser()){
+      shellHtml += '<button id="manageListsBtn">Manage Lists</button>';
+      shellHtml += '<button id="printHistoryBtn">Print History</button>';
+      shellHtml += '<button id="billingBtn">Billing</button>';
+      shellHtml += '<button id="purchaseLedgerBtn">Purchase Ledger</button>';
+    }
     shellHtml += '<button id="logoutBtn">Sign out</button>';
     shellHtml += '</div>';
 
     appEl.innerHTML = shellHtml;
     document.getElementById('logoutBtn').addEventListener('click', logout);
-    document.getElementById('manageListsBtn').addEventListener('click', function(){
+    var manageBtn = document.getElementById('manageListsBtn');
+    if(manageBtn) manageBtn.addEventListener('click', function(){
       closeSidebar();
       openManageLists();
     });
-    document.getElementById('printHistoryBtn').addEventListener('click', function(){
+    var printHistBtn = document.getElementById('printHistoryBtn');
+    if(printHistBtn) printHistBtn.addEventListener('click', function(){
       closeSidebar();
       state.tab = 'printhistory';
       render();
     });
-    document.getElementById('tabBtnBook').addEventListener('click', function(){ state.tab='book'; render(); });
-    document.getElementById('tabBtnOrders').addEventListener('click', function(){ state.tab='orders'; render(); });
-    document.getElementById('tabBtnShip').addEventListener('click', function(){ state.tab='ship'; render(); });
-    document.getElementById('tabBtnShops').addEventListener('click', function(){ state.tab='shops'; render(); });
-    document.getElementById('tabBtnTracking').addEventListener('click', function(){ state.tab='tracking'; render(); });
+    var billingBtn = document.getElementById('billingBtn');
+    if(billingBtn) billingBtn.addEventListener('click', function(){
+      closeSidebar();
+      state.tab = 'billing';
+      render();
+    });
+    var ledgerBtn = document.getElementById('purchaseLedgerBtn');
+    if(ledgerBtn) ledgerBtn.addEventListener('click', function(){
+      closeSidebar();
+      state.tab = 'purchaseledger';
+      render();
+    });
+    var tBook = document.getElementById('tabBtnBook');
+    if(tBook) tBook.addEventListener('click', function(){ state.tab='book'; render(); });
+    var tOrders = document.getElementById('tabBtnOrders');
+    if(tOrders) tOrders.addEventListener('click', function(){ state.tab='orders'; render(); });
+    var tShip = document.getElementById('tabBtnShip');
+    if(tShip) tShip.addEventListener('click', function(){ state.tab='ship'; render(); });
+    var tShops = document.getElementById('tabBtnShops');
+    if(tShops) tShops.addEventListener('click', function(){ state.tab='shops'; render(); });
+    var tTrack = document.getElementById('tabBtnTracking');
+    if(tTrack) tTrack.addEventListener('click', function(){ state.tab='tracking'; render(); });
+    var tRTrack = document.getElementById('tabBtnRTrack');
+    if(tRTrack) tRTrack.addEventListener('click', function(){ state.tab='rtrack'; render(); });
+    var tRBill = document.getElementById('tabBtnRBill');
+    if(tRBill) tRBill.addEventListener('click', function(){ state.tab='rbill'; render(); });
+    var tPurchase = document.getElementById('tabBtnPurchase');
+    if(tPurchase) tPurchase.addEventListener('click', function(){ state.tab='purchase'; render(); });
 
     function openSidebar(){
       document.getElementById('sidebarOverlay').classList.add('open');
@@ -3480,12 +4100,18 @@
     var isTabSwitch = (state.tab !== lastRenderedTab);
     lastRenderedTab = state.tab;
     try{
-      if(state.tab === 'book'){ prefetchOrderId(); content.innerHTML = renderBookTab(); wireBookTab(); }
+      if(isPurchaser()){ state.tab = 'purchase'; content.innerHTML = renderPurchaseTab(); wirePurchaseTab(); }
+      else if(state.tab === 'book'){ content.innerHTML = renderBookTab(); wireBookTab(); }
       else if(state.tab === 'orders'){ content.innerHTML = renderOrdersTab(); wireOrdersTab(); }
+      else if(state.tab === 'rtrack'){ content.innerHTML = renderResellerTrackTab(); wireResellerTrackTab(); }
+      else if(state.tab === 'rbill'){ content.innerHTML = renderResellerBillTab(); wireResellerBillTab(); }
+      else if(isReseller()){ state.tab = 'book'; content.innerHTML = renderBookTab(); wireBookTab(); }
       else if(state.tab === 'ship'){ content.innerHTML = renderShipTab(); wireShipTab(); }
       else if(state.tab === 'shops'){ content.innerHTML = renderShopsTab(); wireShopsTab(); }
       else if(state.tab === 'tracking'){ content.innerHTML = renderTrackingTab(); wireTrackingTab(); if(state.scanMode.active) focusScanInput(); }
       else if(state.tab === 'printhistory'){ content.innerHTML = renderPrintHistoryTab(); wirePrintHistoryTab(); loadPrintHistoryIfNeeded(); }
+      else if(state.tab === 'billing'){ content.innerHTML = renderBillingTab(); wireBillingTab(); }
+      else if(state.tab === 'purchaseledger'){ content.innerHTML = renderPurchaseLedgerTab(); wirePurchaseLedgerTab(); }
     }catch(e){
       content.innerHTML = '<div class="empty-state" style="color:#f28b82;">Something went wrong showing this screen.<br><span style="font-size:11px;color:#9aa0a6;">' + esc(e && e.message ? e.message : String(e)) + '</span><br><br><button class="btn-secondary" onclick="window.location.reload()">Reload page</button></div>';
       console.error('Render error on tab', state.tab, e);
