@@ -1817,7 +1817,10 @@
         showToast('Login created for ' + resellerName);
         renderManageListsModal();
       }catch(err){
-        errEl.textContent = err && err.message ? err.message : 'Could not create login';
+        var isNetworkFail = err && err.message === 'Failed to fetch';
+        errEl.textContent = isNetworkFail
+          ? 'Connection hiccup \u2014 nothing was created. Just try Create again.'
+          : (err && err.message ? err.message : 'Could not create login');
         errEl.style.display = 'block';
         this.disabled = false; this.textContent = 'Create';
       }
