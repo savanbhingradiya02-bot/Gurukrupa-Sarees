@@ -403,7 +403,7 @@
     myAllowedTabs: null,
     myDisplayName: '',
     myIsSuperAdmin: false,
-    previewAs: null,
+    accountSwitch: null,
     passwordRecoveryMode: false,
     newPasswordVal: '',
     newPasswordError: '',
@@ -721,52 +721,69 @@
     return state.myRole === 'reseller' && !!state.myResellerName;
   }
 
-  // ===== ADMIN PREVIEW MODE =====
-  // Lets the real super admin (only) see the app exactly as Bhagyasree or
-  // Rajan would, without logging out. This is a client-side visual
-  // simulation only — the real session underneath is still Soham's, so any
-  // action actually taken while previewing is still recorded as his. It
-  // never touches real credentials or exposes anything that could let a
-  // preview "become" that account for real.
-  var PREVIEW_PRESETS = {
-    bhagyasree: { role: 'staff', allowedTabs: null, isSuperAdmin: false, resellerName: '', displayName: 'Bhagyasree (preview)' },
-    rajan: { role: 'staff', allowedTabs: ['ship','tracking','purchase'], isSuperAdmin: false, resellerName: '', displayName: 'Rajan (preview)' }
-  };
+  // ===== ADMIN: REAL ACCOUNT SWITCH =====
+  // Actually signs the browser into the target account's real session — not
+  // a visual simulation. The service role key that makes this possible
+  // never leaves the server: it lives only in the Vercel environment
+  // variable that /api/switch-account.js reads, and that function re-checks
+  // role='admin' straight from the database before handing back anything,
+  // so this can't be triggered by editing the page. See api/switch-account.js.
+  var SWITCH_ACCOUNTS = [
+    { id: 'bea5319f-1d7d-4d59-988b-6bb282e690c5', label: 'Bhagyasree \u2014 booking staff' },
+    { id: 'a686a571-c5d9-44fd-b33e-ac14b5a9d0a6', label: 'Rajan \u2014 pickup & purchase' }
+  ];
 
-  function effRole(){ return state.previewAs ? state.previewAs.role : state.myRole; }
-  function effAllowedTabs(){ return state.previewAs ? state.previewAs.allowedTabs : state.myAllowedTabs; }
-  function effResellerName(){ return state.previewAs ? state.previewAs.resellerName : state.myResellerName; }
-  function effIsSuperAdmin(){ return state.previewAs ? !!state.previewAs.isSuperAdmin : state.myIsSuperAdmin; }
-  function effDisplayName(){ return state.previewAs ? state.previewAs.displayName : state.myDisplayName; }
-
-  function startPreview(key){
-    var preset = PREVIEW_PRESETS[key];
-    if(!preset) return;
-    state.previewAs = preset;
-    closeModal();
-    var firstTab = myAllowedStaffTabs()[0];
-    state.tab = firstTab ? firstTab.key : 'book';
-    render();
+  async function switchToAccount(targetUserId, label){
+    try{
+      var resp = await fetch('/api/switch-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.session.access_token },
+        body: JSON.stringify({ targetUserId: targetUserId })
+      });
+      var data = await resp.json();
+      if(!resp.ok) throw new Error(data.error || 'Could not switch');
+      var originalSession = { access_token: state.session.access_token, refresh_token: state.session.refresh_token };
+      var { error } = await sb.auth.verifyOtp({ token_hash: data.hashed_token, type: 'magiclink' });
+      if(error) throw error;
+      state.accountSwitch = { originalSession: originalSession, label: label };
+      showToast('Switched to ' + data.email);
+    }catch(e){
+      showToast('Could not switch account: ' + (e && e.message ? e.message : 'try again \u2014 has the switch-account function been deployed?'));
+    }
   }
 
-  function exitPreview(){
-    state.previewAs = null;
-    state.tab = 'book';
-    render();
+  async function exitAccountSwitch(){
+    if(!state.accountSwitch) return;
+    var original = state.accountSwitch.originalSession;
+    try{
+      var { error } = await sb.auth.setSession({ access_token: original.access_token, refresh_token: original.refresh_token });
+      if(error) throw error;
+      state.accountSwitch = null;
+      showToast('Back to your account');
+      await loadOrders();
+    }catch(e){
+      showToast('Could not restore your session \u2014 please sign in again');
+      state.accountSwitch = null;
+      await logout();
+    }
   }
 
-  function openPreviewAsModal(){
+  function openSwitchAccountModal(){
     var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:340px;text-align:left;">';
-    html += '<p style="font-size:15px;font-weight:700;margin:0 0 4px;">Preview as\u2026</p>';
-    html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 14px;">See the app exactly as they would. You can exit anytime from the banner at the top.</p>';
-    html += '<button class="btn-secondary previewAsOptBtn" data-key="bhagyasree" style="width:100%;margin-bottom:8px;text-align:left;">\ud83d\udc64 Bhagyasree \u2014 booking staff</button>';
-    html += '<button class="btn-secondary previewAsOptBtn" data-key="rajan" style="width:100%;text-align:left;">\ud83d\udc64 Rajan \u2014 pickup &amp; purchase</button>';
-    html += '<div class="modal-actions"><button id="previewAsCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button></div>';
+    html += '<p style="font-size:15px;font-weight:700;margin:0 0 4px;">Switch account</p>';
+    html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 14px;">Signs you into their real account so everything behaves exactly as it would for them. Use \u201cExit switch\u201d in the banner to come back.</p>';
+    SWITCH_ACCOUNTS.forEach(function(a){
+      html += '<button class="btn-secondary switchAccountOptBtn" data-id="' + esc(a.id) + '" data-label="' + esc(a.label) + '" style="width:100%;margin-bottom:8px;text-align:left;">\ud83d\udc64 ' + esc(a.label) + '</button>';
+    });
+    html += '<div class="modal-actions"><button id="switchAccountCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button></div>';
     html += '</div></div>';
     document.getElementById('modalHost').innerHTML = html;
-    document.getElementById('previewAsCancelBtn').addEventListener('click', closeModal);
-    document.querySelectorAll('.previewAsOptBtn').forEach(function(btn){
-      btn.addEventListener('click', function(){ startPreview(btn.getAttribute('data-key')); });
+    document.getElementById('switchAccountCancelBtn').addEventListener('click', closeModal);
+    document.querySelectorAll('.switchAccountOptBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        closeModal();
+        switchToAccount(btn.getAttribute('data-id'), btn.getAttribute('data-label'));
+      });
     });
   }
 
@@ -775,7 +792,7 @@
   // existed. Only accounts an admin has deliberately restricted (Rajan,
   // a booking-only hire) are limited to specific tabs.
   function isAdminStaff(){
-    return (effRole() === 'staff' || effRole() === 'admin') && !effAllowedTabs();
+    return (state.myRole === 'staff' || state.myRole === 'admin') && !state.myAllowedTabs;
   }
 
   // Distinct from isAdminStaff(): every unrestricted staff account (Soham AND
@@ -783,7 +800,7 @@
   // Purchase Ledger. Only Soham's account is a super admin — that's what
   // gates the full Staff Alerts monitoring panel and staff password tools.
   function isSuperAdmin(){
-    return isAdminStaff() && !!effIsSuperAdmin();
+    return isAdminStaff() && !!state.myIsSuperAdmin;
   }
 
   var STAFF_TAB_CONFIG = [
@@ -801,9 +818,9 @@
   // shown) and again right before rendering tab content (so state.tab can
   // never point somewhere the account isn't allowed, however it got set).
   function staffTabAllowed(key){
-    if(effRole() !== 'staff' && effRole() !== 'admin') return false;
-    if(!effAllowedTabs()) return true; // unrestricted staff
-    return effAllowedTabs().indexOf(key) !== -1;
+    if(state.myRole !== 'staff' && state.myRole !== 'admin') return false;
+    if(!state.myAllowedTabs) return true; // unrestricted staff
+    return state.myAllowedTabs.indexOf(key) !== -1;
   }
 
   function myAllowedStaffTabs(){
@@ -4932,7 +4949,7 @@
     shellHtml += '<div class="sidebar-overlay" id="sidebarOverlay"></div>';
     shellHtml += '<div class="sidebar-panel" id="sidebarPanel">';
     shellHtml += '<div class="sidebar-top-row"><button class="sidebar-close" id="sidebarCloseBtn">\u00d7</button></div>';
-    shellHtml += '<div class="sidebar-identity"><div class="user-avatar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#f2a76a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 3.5-7 8-7s8 3 8 7"></path></svg></div><span>' + esc(isReseller() ? effResellerName() : (effDisplayName() || currentUserLabel())) + '</span></div>';
+    shellHtml += '<div class="sidebar-identity"><div class="user-avatar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#f2a76a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 3.5-7 8-7s8 3 8 7"></path></svg></div><span>' + esc(isReseller() ? state.myResellerName : (state.myDisplayName || currentUserLabel())) + '</span></div>';
     if(isAdminStaff()){
       shellHtml += '<button id="manageListsBtn">Manage Lists</button>';
       shellHtml += '<button id="printHistoryBtn">Print History</button>';
@@ -4942,17 +4959,17 @@
         shellHtml += '<button id="staffAlertsBtn">\u26a0\ufe0f Staff Alerts</button>';
         shellHtml += '<button id="staffPasswordsBtn">\ud83d\udd11 Staff Passwords</button>';
         shellHtml += '<button id="changeMyPasswordBtn">\ud83d\udd10 Change My Password</button>';
-        if(!state.previewAs){ shellHtml += '<button id="previewAsBtn">\ud83d\udd00 Preview as\u2026</button>'; }
+        if(!state.accountSwitch){ shellHtml += '<button id="switchAccountBtn">\ud83d\udd00 Switch account</button>'; }
       }else{
         shellHtml += '<button id="rajanDelayBtn">\ud83d\ude9a Pickup Delays</button>';
       }
     }
     shellHtml += '<button id="logoutBtn">Sign out</button>';
     shellHtml += '</div>';
-    if(state.previewAs){
+    if(state.accountSwitch){
       shellHtml = '<div style="position:sticky;top:0;z-index:30;background:#3a2a12;border-bottom:2px solid #d97a3f;padding:9px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12.5px;color:#f2a76a;">' +
-        '<span>\ud83d\udd0d Previewing as ' + esc(state.previewAs.displayName) + '</span>' +
-        '<button id="exitPreviewBtn" style="background:#d97a3f;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;flex-shrink:0;">Exit preview</button>' +
+        '<span>\ud83d\udd00 Switched to ' + esc(state.accountSwitch.label) + '</span>' +
+        '<button id="exitSwitchBtn" style="background:#d97a3f;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;flex-shrink:0;">Exit switch</button>' +
         '</div>' + shellHtml;
     }
 
@@ -5003,13 +5020,13 @@
       closeSidebar();
       openChangeMyPasswordModal();
     });
-    var previewAsBtn = document.getElementById('previewAsBtn');
-    if(previewAsBtn) previewAsBtn.addEventListener('click', function(){
+    var switchAccountBtn = document.getElementById('switchAccountBtn');
+    if(switchAccountBtn) switchAccountBtn.addEventListener('click', function(){
       closeSidebar();
-      openPreviewAsModal();
+      openSwitchAccountModal();
     });
-    var exitPreviewBtn = document.getElementById('exitPreviewBtn');
-    if(exitPreviewBtn) exitPreviewBtn.addEventListener('click', exitPreview);
+    var exitSwitchBtn = document.getElementById('exitSwitchBtn');
+    if(exitSwitchBtn) exitSwitchBtn.addEventListener('click', exitAccountSwitch);
     document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn){
       btn.addEventListener('click', function(){ state.tab = btn.getAttribute('data-tab'); render(); });
     });
@@ -5032,7 +5049,7 @@
     // Enforce access here too, not just by hiding buttons — this is the
     // real boundary. A restricted staff account can never render a tab
     // outside its allowed list, no matter how state.tab got set.
-    if(!isReseller() && (effRole() === 'staff' || effRole() === 'admin')){
+    if(!isReseller() && (state.myRole === 'staff' || state.myRole === 'admin')){
       var STAFF_ONLY_TABS = ['printhistory', 'billing', 'purchaseledger'];
       var wantsAdminTab = STAFF_ONLY_TABS.indexOf(state.tab) !== -1;
       var wantsStaffTab = STAFF_TAB_CONFIG.some(function(t){ return t.key === state.tab; });
