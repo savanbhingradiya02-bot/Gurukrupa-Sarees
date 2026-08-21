@@ -289,9 +289,9 @@
   }
   .purchase-tile-dots { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; border: none; font-size: 14px; font-weight: 700; cursor: pointer; z-index: 2; display: flex; align-items: center; justify-content: center; }
   .purchase-tile-badge { position: absolute; left: 6px; bottom: 6px; font-size: 9.5px; font-weight: 700; padding: 3px 8px; border-radius: 8px; }
-  .purchase-shop-row-thumbs { display: flex; align-items: center; flex-shrink: 0; }
-  .purchase-shop-row-thumbs img { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; border: 2px solid #131314; margin-left: -10px; }
-  .purchase-shop-row-thumbs img:first-child { margin-left: 0; }
+  .purchase-shop-tray { display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 10px; padding-bottom: 2px; }
+  .purchase-shop-tray-item { flex-shrink: 0; width: 110px; border-radius: 8px; overflow: hidden; background: #202124; border: 1px solid #3c4043; }
+  .purchase-shop-tray-item img { width: 100%; height: 140px; object-fit: cover; display: block; cursor: zoom-in; }
   .purchase-bar-dots { width: 44px; height: 44px; border-radius: 10px; background: #28292c; border: 1px solid #3c4043; color: #e8eaed; font-size: 18px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
   .banner.warn { background: rgba(253,214,99,0.12); border: 1px solid rgba(253,214,99,0.3); color: #fdd663; }
   .banner.err { background: rgba(242,139,130,0.12); border: 1px solid rgba(242,139,130,0.3); color: #f28b82; }
@@ -4128,20 +4128,20 @@
       if(state.purchaseFilter === 'fabrizo' && shopMatchesPolarise(g.name)) return;
       shown++;
       var restockNeeded = pending.filter(function(r){ return !r.item.restock_date; }).length;
-      var previewThumbs = pending.slice(0, 3);
-      html += '<div class="order-card purchaseShopCard" data-shop="' + esc(g.name) + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;">';
+      html += '<div class="order-card">';
+      html += '<div class="purchaseShopCard" data-shop="' + esc(g.name) + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;">';
       html += '<div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:700;color:#e8eaed;">' + esc(g.name) + '</div>';
       html += '<div style="font-size:12px;color:#9aa0a6;margin-top:2px;">' + pending.length + ' pending \u00b7 ' + (g.rows.length - pending.length) + ' purchased</div>';
       if(restockNeeded > 0){ html += '<div style="font-size:11.5px;color:#f2a76a;margin-top:2px;">\u26a0\ufe0f ' + restockNeeded + ' need restock date</div>'; }
-      html += '</div>';
-      if(previewThumbs.length > 0){
-        html += '<div class="purchase-shop-row-thumbs">';
-        previewThumbs.forEach(function(r){
-          html += '<img src="' + (r.item.thumb_url || r.item.photo_url) + '">';
+      html += '</div><span style="color:#9aa0a6;font-size:18px;flex-shrink:0;">\u203a</span></div>';
+      if(pending.length > 0){
+        html += '<div class="purchase-shop-tray">';
+        pending.forEach(function(r){
+          html += '<div class="purchase-shop-tray-item"><img class="shopRowTrayThumb" data-src="' + r.item.photo_url + '" src="' + (r.item.thumb_url || r.item.photo_url) + '"></div>';
         });
         html += '</div>';
       }
-      html += '<span style="color:#9aa0a6;font-size:18px;flex-shrink:0;">\u203a</span></div>';
+      html += '</div>';
     });
     if(shown === 0){ html += '<div class="empty-state">' + (state.purchaseFilter==='pending' ? 'Nothing pending to collect.' : 'No shops match.') + '</div>'; }
     return html;
@@ -4162,6 +4162,12 @@
         state.purchaseRateDrafts = {};
         state.purchaseActionPanel = null;
         render();
+      });
+    });
+    document.querySelectorAll('.shopRowTrayThumb').forEach(function(img){
+      img.addEventListener('click', function(e){
+        e.stopPropagation();
+        openZoom(img.getAttribute('data-src'));
       });
     });
   }
