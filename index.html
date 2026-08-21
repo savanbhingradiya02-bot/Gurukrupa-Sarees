@@ -123,6 +123,12 @@
     font-size: 16px; font-family: inherit; background: #28292c; color: #e8eaed;
     -webkit-appearance: none; appearance: none;
   }
+  /* PIN entry — visually masked like a password field, but NOT type="password".
+     Browsers treat type="password" as a login field and will offer to
+     autofill saved website credentials into it, which is exactly the wrong
+     thing for a 4-6 digit PIN. -webkit-text-security masks the digits
+     without triggering that. */
+  input.pin-input { -webkit-text-security: disc; text-security: disc; }
   input[type=checkbox] { accent-color: #d97a3f; }
   /* Custom checkbox: native ones render a plain white box on many mobile
      browsers regardless of accent-color. This draws it fully ourselves so
@@ -487,6 +493,7 @@
     gpayTopupAmountVal: '',
     gpayTopupNoteVal: '',
     shopChallanPhotos: {},
+    shopUpiVpas: {},
     pendingChallanShop: null,
     purchaseShopView: null,
     purchaseSelection: {},
@@ -497,6 +504,7 @@
     purchasePhotoPreview: null,
     purchaseScreenshotBlob: null,
     purchaseScreenshotPreview: null,
+    purchaseUpiRefVal: '',
     purchaseRateDrafts: {},
     purchaseBatchChk: {},
     purchaseBatchAmount: '',
@@ -933,13 +941,18 @@
     if(loadOrdersInFlight) return; // prevent duplicate concurrent loads (page load + SIGNED_IN event both fire)
     loadOrdersInFlight = true;
     state.loading = true;
+    // Load the real role/permissions BEFORE the first paint. Rendering here
+    // first (with the still-default "unrestricted" state) is exactly what
+    // caused a one-frame flash of all 6 admin tabs on every refresh for a
+    // restricted account like Rajan's, before correcting itself a moment
+    // later. Knowing who they really are first means it's never wrong.
+    await loadMyProfile();
     render();
     try{
-      await loadMyProfile();
       // Start the 4 list queries NOW so they run in parallel with orders/items
       var listPromise = Promise.all([
         sb.from('resellers').select('name,hidden'),
-        sb.from('shops').select('name,hidden,challan_photo_url'),
+        sb.from('shops').select('name,hidden,challan_photo_url,upi_vpa'),
         sb.from('couriers').select('name,hidden'),
         sb.from('sizes').select('name,hidden'),
         sb.from('courier_prefixes').select('prefix,courier_name'),
@@ -1001,8 +1014,13 @@
       state.gpayTopups = listResults[6].data || [];
 
       var challanMap = {};
-      (shopRows||[]).forEach(function(r){ if(r.challan_photo_url){ challanMap[r.name] = r.challan_photo_url; } });
+      var upiMap = {};
+      (shopRows||[]).forEach(function(r){
+        if(r.challan_photo_url){ challanMap[r.name] = r.challan_photo_url; }
+        if(r.upi_vpa){ upiMap[r.name] = r.upi_vpa; }
+      });
       state.shopChallanPhotos = challanMap;
+      state.shopUpiVpas = upiMap;
 
       var hiddenResellers = {};
       (resellerRows||[]).forEach(function(r){
@@ -1638,6 +1656,33 @@
     renderManageListsModal();
   }
 
+  function openShopUpiEditModal(shopName){
+    var current = state.shopUpiVpas[shopName] || '';
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:320px;text-align:left;">';
+    html += '<p style="font-size:14px;font-weight:700;margin:0 0 4px;">UPI ID \u2014 ' + esc(shopName) + '</p>';
+    html += '<p style="font-size:11.5px;color:#9aa0a6;margin:0 0 12px;">Lets Rajan tap "Pay via GPay" with the amount and this shop\u2019s UPI ID already filled in.</p>';
+    html += '<input type="text" id="shopUpiInput" autocomplete="off" placeholder="shopname@bank" value="' + esc(current) + '" style="margin-bottom:10px;">';
+    html += '<div class="modal-actions"><button id="shopUpiCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button><button id="shopUpiSaveBtn" style="background:#d97a3f;color:#fff;border:none;">Save</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    var inp = document.getElementById('shopUpiInput');
+    inp.focus();
+    document.getElementById('shopUpiCancelBtn').addEventListener('click', function(){ renderManageListsModal(); });
+    document.getElementById('shopUpiSaveBtn').addEventListener('click', async function(){
+      var val = (inp.value || '').trim();
+      try{
+        var { error } = await sb.from('shops').update({ upi_vpa: val || null }).eq('name', shopName);
+        if(error) throw error;
+        if(val){ state.shopUpiVpas[shopName] = val; } else { delete state.shopUpiVpas[shopName]; }
+        showToast(val ? 'UPI ID saved for ' + shopName : 'UPI ID removed');
+        renderManageListsModal();
+      }catch(err){
+        showToast('Could not save: ' + (err && err.message ? err.message : 'try again'));
+      }
+    });
+    inp.addEventListener('keydown', function(e){ if(e.key === 'Enter') document.getElementById('shopUpiSaveBtn').click(); });
+  }
+
   function renderManageListsModal(){
     var tab = state.manageListsTab || 'resellers';
     var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers', sizes: 'sizes' };
@@ -1670,11 +1715,15 @@
       html += '<div style="display:flex;align-items:center;gap:6px;">';
       if(tab === 'shops'){
         html += '<button class="shop-challan-btn" data-shop="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;font-size:11px;padding:3px 7px;">' + (state.shopChallanPhotos[name] ? '\ud83d\udcc4 Change' : '\ud83d\udcc4 Add challan pic') + '</button>';
+        html += '<button class="shop-upi-btn" data-shop="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;font-size:11px;padding:3px 7px;">' + (state.shopUpiVpas[name] ? '\ud83d\udcf1 Change UPI' : '\ud83d\udcf1 Add UPI ID') + '</button>';
       }
       html += '<button class="del-list-item-btn" data-name="' + esc(name) + '" style="background:none;border:none;color:#f28b82;cursor:pointer;font-size:16px;">\u00d7</button>';
       html += '</div></div>';
       if(tab === 'shops' && state.shopChallanPhotos[name]){
         html += '<img src="' + state.shopChallanPhotos[name] + '" style="width:100%;max-height:120px;object-fit:contain;border-radius:6px;border:1px solid #3c4043;">';
+      }
+      if(tab === 'shops' && state.shopUpiVpas[name]){
+        html += '<div style="font-size:11.5px;color:#7fd99a;">\ud83d\udcf1 ' + esc(state.shopUpiVpas[name]) + '</div>';
       }
       html += '</div>';
     });
@@ -1689,6 +1738,9 @@
         state.pendingChallanShop = btn.getAttribute('data-shop');
         document.getElementById('shopChallanFileInput').click();
       });
+    });
+    document.querySelectorAll('.shop-upi-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){ openShopUpiEditModal(btn.getAttribute('data-shop')); });
     });
     document.getElementById('shopChallanFileInput').addEventListener('change', async function(e){
       var f = e.target.files && e.target.files[0];
@@ -4029,7 +4081,7 @@
     return pub.publicUrl;
   }
 
-  async function purchaseSelectedItems(itemRates, method, purchasePhotoUrl, screenshotUrl){
+  async function purchaseSelectedItems(itemRates, method, purchasePhotoUrl, screenshotUrl, upiRef){
     var ids = itemRates.map(function(r){ return r.id; });
     var totalRate = itemRates.reduce(function(s,r){ return s + r.rate; }, 0);
     if(method === 'cash'){
@@ -4052,6 +4104,7 @@
       it.purchased_at = nowIso;
       if(purchasePhotoUrl) it.purchase_photo_url = purchasePhotoUrl;
       if(screenshotUrl) it.payment_screenshot_url = screenshotUrl;
+      if(upiRef) it.upi_ref = upiRef;
     });
     render();
     try{
@@ -4060,7 +4113,8 @@
           purchased: true, purchase_rate: it.purchase_rate, payment_method: method,
           purchased_at: nowIso, purchased_by: state.session.user.id,
           purchase_photo_url: it.purchase_photo_url || null,
-          payment_screenshot_url: it.payment_screenshot_url || null
+          payment_screenshot_url: it.payment_screenshot_url || null,
+          upi_ref: it.upi_ref || null
         }).eq('id', it.id);
       }));
       showToast('Marked ' + touched.length + ' piece' + (touched.length!==1?'s':'') + ' purchased \u2014 \u20b9' + totalRate + ' (' + method + ')');
@@ -4068,6 +4122,7 @@
       showToast('Could not save: ' + (e && e.message ? e.message : 'try again'));
     }
     state.purchaseSelection = {};
+    state.purchaseUpiRefVal = '';
     render();
     return true;
   }
@@ -4319,6 +4374,7 @@
       ids.forEach(function(id){ reassignItemShop(id, val); });
       state.purchaseSelection = {};
       state.purchaseShopView = val;
+      render();
     });
   }
 
@@ -4371,6 +4427,18 @@
     html += '</select>';
 
     var method = state.purchasePendingMethod || '';
+    if(method === 'gpay'){
+      var upiVpa = state.shopUpiVpas[state.purchaseShopView];
+      if(upiVpa){
+        var upiUrl = 'upi://pay?pa=' + encodeURIComponent(upiVpa) + '&pn=' + encodeURIComponent(state.purchaseShopView) + '&am=' + encodeURIComponent(String(total)) + '&cu=INR&tn=' + encodeURIComponent('Gurukrupa purchase');
+        html += '<a href="' + upiUrl + '" id="gpayPayLink" class="btn-secondary" style="display:block;text-align:center;text-decoration:none;width:100%;margin-bottom:10px;box-sizing:border-box;">\ud83d\udcf1 Pay \u20b9' + total.toLocaleString('en-IN') + ' via GPay</a>';
+      }else{
+        html += '<div class="field-hint">No UPI ID saved for this shop yet \u2014 pay however you normally would, then enter the transaction ID below. Ask Soham to add the shop\u2019s UPI ID in Manage Lists for a one-tap pay link next time.</div>';
+      }
+      html += '<label style="margin-top:8px;">UPI transaction ID / UTR number</label>';
+      html += '<input type="text" id="purchaseUpiRefInput" autocomplete="off" placeholder="e.g. 411223456789" value="' + esc(state.purchaseUpiRefVal||'') + '" style="margin-bottom:10px;">';
+      html += '<div class="field-hint">Open GPay \u2192 that payment \u2192 copy the transaction ID / UTR shown there.</div>';
+    }
     if(method === 'challan'){
       var chUrl = state.shopChallanPhotos[state.purchaseShopView];
       if(chUrl){ html += '<div class="field-hint">Challan reference for this shop:</div><img src="' + chUrl + '" style="width:100%;max-height:180px;object-fit:contain;border-radius:10px;border:1px solid #3c4043;margin:6px 0;">'; }
@@ -4431,6 +4499,8 @@
       methodSel.value = state.purchasePendingMethod || '';
       methodSel.addEventListener('change', function(){ state.purchasePendingMethod = methodSel.value; openPurchaseBuyModal(); });
     }
+    var upiRefInp = document.getElementById('purchaseUpiRefInput');
+    if(upiRefInp) upiRefInp.addEventListener('input', function(){ state.purchaseUpiRefVal = upiRefInp.value; });
     var photoBtn = document.getElementById('purchasePhotoBtn');
     var photoInput = document.getElementById('purchasePhotoInput');
     if(photoBtn && photoInput){
@@ -4478,6 +4548,11 @@
         state.purchaseActionError = method === 'message' ? 'Add the message screenshot' : 'Add a photo of the challan';
         openPurchaseBuyModal(); return;
       }
+      var upiRef = (state.purchaseUpiRefVal || '').trim();
+      if(method === 'gpay' && !upiRef){
+        state.purchaseActionError = 'Enter the UPI transaction ID / UTR number from GPay';
+        openPurchaseBuyModal(); return;
+      }
       state.purchaseActionError = '';
       state.purchaseSaving = true;
       openPurchaseBuyModal();
@@ -4489,7 +4564,7 @@
         if((method === 'message' || method === 'challan') && state.purchaseScreenshotBlob){
           screenshotUrl = await uploadPurchaseProof(state.purchaseScreenshotBlob, method);
         }
-        var ok = await purchaseSelectedItems(rates, method, photoUrl, screenshotUrl);
+        var ok = await purchaseSelectedItems(rates, method, photoUrl, screenshotUrl, (method === 'gpay' ? upiRef : null));
         state.purchaseSaving = false;
         if(ok){
           var total = rates.reduce(function(s,r){ return s + r.rate; }, 0);
@@ -4497,7 +4572,7 @@
           state.purchasePhotoBlob = null; state.purchasePhotoPreview = null;
           state.purchaseScreenshotBlob = null; state.purchaseScreenshotPreview = null;
           state.purchaseRateDrafts = {}; state.purchaseBatchChk = {};
-          openPurchaseConfirmedModal(beforeRows, rates, total, method);
+          openPurchaseConfirmedModal(beforeRows, rates, total, method, method === 'gpay' ? upiRef : null);
         }else{
           openPurchaseBuyModal();
         }
@@ -4509,7 +4584,7 @@
     });
   }
 
-  function openPurchaseConfirmedModal(beforeRows, rates, total, method){
+  function openPurchaseConfirmedModal(beforeRows, rates, total, method, upiRef){
     var rateById = {};
     rates.forEach(function(r){ rateById[r.id] = r.rate; });
     var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:400px;text-align:left;max-height:80vh;overflow-y:auto;">';
@@ -4522,6 +4597,7 @@
       html += '<span style="font-size:13px;color:#7fd99a;font-weight:700;">\u20b9' + esc(String(rateById[r.id])) + '</span>';
       html += '</div>';
     });
+    if(upiRef){ html += '<div style="font-size:12px;color:#9aa0a6;margin-top:8px;">UPI ref: <span style="color:#e8eaed;">' + esc(upiRef) + '</span></div>'; }
     html += '<div style="text-align:right;font-size:16px;font-weight:800;color:#f2a76a;margin:12px 0 4px;">Total: \u20b9' + total.toLocaleString('en-IN') + '</div>';
     html += '<div class="modal-actions"><button id="purchaseConfirmedCloseBtn" style="background:#d97a3f;color:#fff;border:none;flex:1;">Done</button></div>';
     html += '</div></div>';
@@ -4609,7 +4685,7 @@
       var it = r.item, o = r.order;
       html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #3c4043;">';
       html += '<img class="recentPurchThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url||it.photo_url) + '" style="width:44px;height:56px;object-fit:cover;border-radius:6px;cursor:zoom-in;">';
-      html += '<div style="flex:1;min-width:0;"><div style="font-size:12.5px;color:#e8eaed;">#' + esc(o.id) + (it.size?' \u00b7 '+esc(it.size):'') + '</div><div style="font-size:11px;color:#9aa0a6;">' + esc(formatTime(it.purchased_at)) + '</div></div>';
+      html += '<div style="flex:1;min-width:0;"><div style="font-size:12.5px;color:#e8eaed;">#' + esc(o.id) + (it.size?' \u00b7 '+esc(it.size):'') + '</div><div style="font-size:11px;color:#9aa0a6;">' + esc(formatTime(it.purchased_at)) + ' \u00b7 ' + esc((it.payment_method||'').toUpperCase()) + (it.upi_ref ? ' \u00b7 UPI ' + esc(it.upi_ref) : '') + '</div></div>';
       html += '<span style="font-size:14px;color:#7fd99a;font-weight:700;">\u20b9' + esc(String(it.purchase_rate)) + '</span>';
       html += '</div>';
     });
@@ -4699,7 +4775,7 @@
         html += '<div style="flex:1;min-width:0;">';
         html += '<div><span class="order-id">#' + esc(r.pieceLabel) + '</span></div>';
         html += '<div style="font-size:12.5px;color:#e8eaed;">' + esc(it.shop_name||'') + ' \u00b7 ' + esc(o.reseller_name||'') + '</div>';
-        html += '<div style="font-size:12px;color:#7fd99a;font-weight:600;">\u20b9' + esc(String(it.purchase_rate)) + ' \u00b7 ' + esc((it.payment_method||'').toUpperCase()) + '</div>';
+        html += '<div style="font-size:12px;color:#7fd99a;font-weight:600;">\u20b9' + esc(String(it.purchase_rate)) + ' \u00b7 ' + esc((it.payment_method||'').toUpperCase()) + (it.upi_ref ? ' \u00b7 UPI ' + esc(it.upi_ref) : '') + '</div>';
         html += '</div>';
         if(it.purchase_photo_url){ html += '<img class="ledgerThumb" data-src="' + it.purchase_photo_url + '" src="' + it.purchase_photo_url + '" title="Purchase-time photo" style="width:44px;height:56px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;flex-shrink:0;cursor:zoom-in;">'; }
         if(it.payment_screenshot_url){ html += '<img class="ledgerThumb" data-src="' + it.payment_screenshot_url + '" src="' + it.payment_screenshot_url + '" title="Message screenshot" style="width:44px;height:56px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;flex-shrink:0;cursor:zoom-in;">'; }
@@ -5152,16 +5228,53 @@
     return !!state.myAllowedTabs && (key === 'ship' || key === 'tracking');
   }
 
+  // In-app PIN-setup modal — replaces window.prompt(), which is a blocking
+  // native browser dialog that can freeze the page (and behaves poorly or
+  // is unsupported in some mobile/PWA/embedded contexts). This keeps setup
+  // consistent with every other input in the app.
+  function openSetupPinModal(message, onSuccess){
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:320px;text-align:center;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0 0 8px;">Set up a passcode</p>';
+    html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">' + esc(message) + '</p>';
+    html += '<input type="text" class="pin-input" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" id="setupPinInput" placeholder="4\u20136 digits" style="text-align:center;font-size:20px;letter-spacing:6px;">';
+    html += '<div id="setupPinError" class="error-text" style="display:none;margin-top:8px;"></div>';
+    html += '<div class="modal-actions"><button id="setupPinCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button><button id="setupPinSaveBtn" style="background:#d97a3f;color:#fff;border:none;">Save</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    var inp = document.getElementById('setupPinInput');
+    inp.focus();
+    document.getElementById('setupPinCancelBtn').addEventListener('click', closeModal);
+    async function attempt(){
+      var pin = (inp.value || '').trim();
+      var errEl = document.getElementById('setupPinError');
+      if(!/^\d{4,6}$/.test(pin)){
+        errEl.textContent = 'Enter 4\u20136 digits';
+        errEl.style.display = 'block';
+        return;
+      }
+      errEl.style.display = 'none';
+      var btn = document.getElementById('setupPinSaveBtn');
+      btn.disabled = true; btn.textContent = 'Saving...';
+      var ok = await setupHandoverPin(pin);
+      if(ok){
+        closeModal();
+        onSuccess();
+      }else{
+        btn.disabled = false; btn.textContent = 'Save';
+      }
+    }
+    document.getElementById('setupPinSaveBtn').addEventListener('click', attempt);
+    inp.addEventListener('keydown', function(e){ if(e.key === 'Enter') attempt(); });
+  }
+
   function openTabPinGateModal(tabKey){
     if(!state.myHandoverPinHash){
-      var pin = prompt('Set a 4\u20136 digit passcode first \u2014 you\u2019ll need it each time to open this tab.');
-      if(!pin) return;
-      setupHandoverPin(pin.trim()).then(function(ok){ if(ok) openTabPinGateModal(tabKey); });
+      openSetupPinModal('You\u2019ll need this passcode each time to open this tab.', function(){ openTabPinGateModal(tabKey); });
       return;
     }
     var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:300px;text-align:center;">';
     html += '<p style="font-size:15px;font-weight:700;margin:0 0 12px;">Enter passcode</p>';
-    html += '<input type="password" inputmode="numeric" maxlength="6" id="tabPinInput" placeholder="\u2022 \u2022 \u2022 \u2022" style="text-align:center;font-size:20px;letter-spacing:6px;">';
+    html += '<input type="text" class="pin-input" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" id="tabPinInput" placeholder="\u2022 \u2022 \u2022 \u2022" style="text-align:center;font-size:20px;letter-spacing:6px;">';
     html += '<div id="tabPinError" class="error-text" style="display:none;margin-top:8px;"></div>';
     html += '<div class="modal-actions"><button id="tabPinCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button><button id="tabPinUnlockBtn" style="background:#d97a3f;color:#fff;border:none;">Unlock</button></div>';
     html += '</div></div>';
@@ -5191,11 +5304,7 @@
 
   function enterHandoverMode(shopName){
     if(!state.myHandoverPinHash){
-      var pin = prompt('Set a 4\u20136 digit PIN first \u2014 you\u2019ll need it to exit handover mode later.');
-      if(!pin) return;
-      setupHandoverPin(pin.trim()).then(function(ok){
-        if(ok) reallyEnterHandoverMode(shopName);
-      });
+      openSetupPinModal('You\u2019ll need this passcode to exit handover mode later.', function(){ reallyEnterHandoverMode(shopName); });
       return;
     }
     reallyEnterHandoverMode(shopName);
@@ -5245,7 +5354,7 @@
     });
     html += '<div style="margin-top:auto;padding-top:24px;text-align:center;">';
     html += '<div style="font-size:11.5px;color:#5f6368;margin-bottom:10px;">Rajan\u2019s PIN to unlock</div>';
-    html += '<input type="password" inputmode="numeric" maxlength="6" id="handoverUnlockInput" placeholder="\u2022 \u2022 \u2022 \u2022" style="text-align:center;font-size:20px;letter-spacing:6px;width:160px;">';
+    html += '<input type="text" class="pin-input" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" id="handoverUnlockInput" placeholder="\u2022 \u2022 \u2022 \u2022" style="text-align:center;font-size:20px;letter-spacing:6px;width:160px;">';
     if(state.handover.unlockError){ html += '<div class="error-text" style="margin-top:8px;">' + esc(state.handover.unlockError) + '</div>'; }
     html += '<br><button class="btn-primary" id="handoverUnlockBtn" style="width:auto;padding:11px 28px;margin-top:12px;">Unlock</button>';
     html += '</div></div>';
