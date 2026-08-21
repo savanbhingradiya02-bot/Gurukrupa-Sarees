@@ -89,7 +89,7 @@
     .order-photos { column-count: 10; }
   }
   @media (max-width: 699px) {
-    .brand-wrap { padding-left: 44px; }
+    .brand-wrap { padding-left: 44px; padding-right: 44px; }
     .app-brand { font-size: 28px; letter-spacing: 0.5px; margin: 4px 0 2px; }
     .app-brand-sub { font-size: 9px; letter-spacing: 2.5px; margin: 0 0 12px; }
     .tabs { margin-bottom: 12px; padding: 8px 0; }
@@ -346,8 +346,12 @@
   .login-box input { padding: 14px 16px; font-size: 16px; border-radius: 12px; }
   .login-box .btn-primary { padding: 16px; font-size: 16px; border-radius: 12px; margin-top: 8px; }
 
-  .brand-wrap { position: relative; padding-left: 52px; }
+  .brand-wrap { position: relative; padding-left: 52px; padding-right: 52px; }
   .menu-row { position: absolute; top: 50%; transform: translateY(-50%); left: 0; margin-bottom: 0; z-index: 6; }
+  .notif-row { position: absolute; top: 50%; transform: translateY(-50%); right: 0; margin-bottom: 0; z-index: 6; }
+  .notif-btn { position: relative; display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; background: #202124; border: 1px solid #3c4043; cursor: pointer; }
+  .notif-btn svg { width: 19px; height: 19px; }
+  .notif-badge { position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 8px; background: #d43b3b; color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
   .app-brand {
     font-size: clamp(30px, 11.5vw, 91px); font-weight: 900; letter-spacing: 1px; text-align: center; color: #e8eaed;
     margin: 10px 0 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1;
@@ -421,7 +425,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js" defer></script>
 <script>
 (function(){
 
@@ -489,6 +493,8 @@
     shopChallanPhotos: {},
     shopUpiVpas: {},
     resellerLogins: {},
+    resellerNotifications: [],
+    resellerNotifDropdownOpen: false,
     editingListItem: null,
     editingListItemVal: '',
     pendingCreateLoginFor: null,
@@ -1029,6 +1035,16 @@
             if(p.reseller_name){ state.resellerLogins[p.reseller_name] = { email: p.email, created_at: p.created_at }; }
           });
         }catch(e){ /* if this isn't readable, Manage Lists just always shows "Create login" */ }
+      }
+      if(isReseller()){
+        try{
+          var { data: notifRows } = await sb.from('reseller_notifications')
+            .select('id,order_id,message,created_at,read_at')
+            .eq('reseller_name', state.myResellerName)
+            .order('created_at', { ascending: false })
+            .limit(50);
+          state.resellerNotifications = notifRows || [];
+        }catch(e){ state.resellerNotifications = []; }
       }
 
       var hiddenResellers = {};
@@ -2042,6 +2058,11 @@
       if(resetShared) ord.tracking_shared_at = null;
     }
     if(courierName){ learnCourierPrefix(val, courierName); }
+    if(ord && ord.reseller_name){
+      var notifMsg = 'Tracking added for order #' + orderId + (courierName ? ' via ' + courierName : '') + ': ' + val;
+      sb.from('reseller_notifications').insert({ reseller_name: ord.reseller_name, order_id: String(orderId), message: notifMsg })
+        .then(function(){}).catch(function(){ /* non-critical, never block the tracking save on this */ });
+    }
     return { ok: true };
   }
 
@@ -3150,6 +3171,17 @@
           tryAutocomplete(inp, state.sizes || []);
           var idx = parseInt(inp.getAttribute('data-idx'), 10);
           if(state.bookPhotos[idx]) state.bookPhotos[idx].sizeVal = inp.value;
+          if(isReseller()){
+            // Resellers don't have per-photo shop fields or a name field —
+            // go straight to the next size field, or Address once done.
+            var nextSize = document.querySelector('.photoSizeInput[data-idx="' + (idx+1) + '"]');
+            if(nextSize){ nextSize.focus(); }
+            else{
+              var addrField = document.getElementById('addressInput');
+              if(addrField) addrField.focus();
+            }
+            return;
+          }
           var nextShop = document.querySelector('.photoShopInput[data-idx="' + (idx+1) + '"]');
           if(nextShop){ nextShop.focus(); }
           else{
@@ -3273,7 +3305,7 @@
         state.nameVal = ''; state.courierVal = ''; state.addressVal = '';
         state.urgentVal = false; state.urgentDaysVal = '';
         state.saving = false;
-        state.tab = 'orders';
+        if(!isReseller()){ state.tab = 'orders'; }
         render();
       }catch(err){
         state.bookError = 'Could not save: ' + (err && err.message ? err.message : String(err));
@@ -4845,6 +4877,34 @@
 
   // ===== PURCHASE: recent purchases at this shop, for price cross-checking =====
 
+  function openResellerNotifications(){
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:380px;text-align:left;max-height:75vh;overflow-y:auto;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0;">Notifications</p>';
+    html += '<button id="notifCloseBtn" style="background:none;border:none;color:#9aa0a6;font-size:20px;cursor:pointer;">\u00d7</button></div>';
+    if(state.resellerNotifications.length === 0){
+      html += '<div class="empty-state">Nothing yet \u2014 you\u2019ll see it here as soon as tracking is added to one of your orders.</div>';
+    }
+    state.resellerNotifications.forEach(function(n){
+      html += '<div style="padding:9px 0;border-bottom:1px solid #3c4043;' + (!n.read_at ? 'position:relative;' : '') + '">';
+      if(!n.read_at){ html += '<span style="position:absolute;left:-4px;top:14px;width:6px;height:6px;border-radius:50%;background:#d97a3f;"></span>'; }
+      html += '<div style="font-size:13px;color:#e8eaed;' + (!n.read_at ? 'padding-left:12px;font-weight:600;' : 'padding-left:12px;') + '">' + esc(n.message) + '</div>';
+      html += '<div style="font-size:11px;color:#9aa0a6;padding-left:12px;margin-top:2px;">' + esc(formatTime(n.created_at)) + '</div>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    document.getElementById('notifCloseBtn').addEventListener('click', closeModal);
+
+    var unreadIds = state.resellerNotifications.filter(function(n){ return !n.read_at; }).map(function(n){ return n.id; });
+    if(unreadIds.length > 0){
+      state.resellerNotifications.forEach(function(n){ if(!n.read_at) n.read_at = new Date().toISOString(); });
+      render();
+      sb.from('reseller_notifications').update({ read_at: new Date().toISOString() }).in('id', unreadIds)
+        .then(function(){}).catch(function(){ /* badge will just re-show next load if this fails, non-critical */ });
+    }
+  }
+
   function openRecentShopPurchasesModal(shopName){
     var cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     var rows = [];
@@ -5177,6 +5237,7 @@
       html += '<div><span class="order-id">#' + esc(o.id) + '</span>' + (o.urgent ? ' <span style="font-size:11px;color:#f28b82;">\ud83d\udea8</span>' : '') + '</div>';
       html += '<div style="font-size:13px;color:#e8eaed;font-weight:600;word-break:break-all;margin-top:4px;">' + esc(o.tracking_number) + '</div>';
       if(effCourier){ html += '<div style="font-size:11.5px;color:#9aa0a6;">' + esc(effCourier) + '</div>'; }
+      if(o.address){ html += '<div style="font-size:11.5px;color:#9aa0a6;margin-top:3px;white-space:pre-line;">' + esc(o.address) + '</div>'; }
       html += '</div>';
       html += '<button class="btn-secondary rtrackShareOneBtn" data-order="' + esc(o.id) + '" style="flex-shrink:0;">\ud83d\udce4</button>';
       html += '</div>';
@@ -5264,37 +5325,97 @@
     if(btn) btn.addEventListener('click', downloadBillExcel);
   }
 
-  function downloadBillExcel(){
-    if(typeof XLSX === 'undefined'){
+  async function downloadBillExcel(){
+    if(typeof ExcelJS === 'undefined'){
       showToast('Excel engine is still loading \u2014 try again in a few seconds');
       return;
     }
-    var rows = [['Order ID', 'Piece', 'Booked date', 'Size', 'Status', 'Tracking', 'Price (Rs)']];
-    var total = 0;
-    state.orders.slice().reverse().forEach(function(o){
-      if(o.status === 'cancelled') return;
-      (o.items||[]).forEach(function(it, idx){
-        var price = (it.price != null && it.price !== '') ? Number(it.price) : '';
-        if(price !== ''){ total += price; }
-        rows.push([
-          o.id,
-          o.id + '-' + (idx + 1),
-          (o.created_at || '').slice(0, 10),
-          it.size || '',
-          it.status || '',
-          o.tracking_number || '',
-          price
-        ]);
+    var btn = document.getElementById('downloadBillBtn');
+    var originalLabel = btn ? btn.textContent : '';
+    if(btn){ btn.disabled = true; btn.textContent = '\u23f3 Preparing...'; }
+
+    try{
+      var lines = [];
+      var total = 0;
+      state.orders.slice().reverse().forEach(function(o){
+        if(o.status === 'cancelled') return;
+        (o.items||[]).forEach(function(it, idx){
+          var price = (it.price != null && it.price !== '') ? Number(it.price) : '';
+          if(price !== ''){ total += price; }
+          lines.push({
+            orderId: o.id,
+            piece: o.id + '-' + (idx + 1),
+            date: (o.created_at || '').slice(0, 10),
+            size: it.size || '',
+            status: it.status || '',
+            address: o.address || '',
+            courier: o.courier || '',
+            tracking: o.tracking_number || '',
+            price: price,
+            photoUrl: it.thumb_url || it.photo_url || ''
+          });
+        });
       });
-    });
-    rows.push([]);
-    rows.push(['', '', '', '', '', 'TOTAL', total]);
-    var ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{wch:10},{wch:10},{wch:12},{wch:8},{wch:10},{wch:20},{wch:12}];
-    var wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Bill');
-    var safeName = (state.myResellerName || 'bill').replace(/[^A-Za-z0-9]+/g, '_');
-    XLSX.writeFile(wb, 'Gurukrupa_Bill_' + safeName + '_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+
+      // Fetch every thumbnail in parallel up front — much faster than one at a time,
+      // and a failed photo (bad URL, network hiccup) just leaves that row blank
+      // instead of breaking the whole export.
+      var photoBuffers = await Promise.all(lines.map(function(l){
+        if(!l.photoUrl) return Promise.resolve(null);
+        return fetch(l.photoUrl).then(function(r){ return r.ok ? r.arrayBuffer() : null; }).catch(function(){ return null; });
+      }));
+
+      var wb = new ExcelJS.Workbook();
+      var ws = wb.addWorksheet('Bill');
+      ws.columns = [
+        { header: 'Order ID', key: 'orderId', width: 10 },
+        { header: 'Piece', key: 'piece', width: 10 },
+        { header: 'Booked date', key: 'date', width: 12 },
+        { header: 'Size', key: 'size', width: 8 },
+        { header: 'Status', key: 'status', width: 10 },
+        { header: 'Address', key: 'address', width: 36 },
+        { header: 'Courier', key: 'courier', width: 18 },
+        { header: 'Tracking ID', key: 'tracking', width: 20 },
+        { header: 'Price (Rs)', key: 'price', width: 12 },
+        { header: 'Photo', key: 'photo', width: 12 }
+      ];
+      ws.getRow(1).font = { bold: true };
+
+      lines.forEach(function(l, i){
+        var row = ws.addRow({
+          orderId: l.orderId, piece: l.piece, date: l.date, size: l.size, status: l.status,
+          address: l.address, courier: l.courier, tracking: l.tracking, price: l.price, photo: ''
+        });
+        row.alignment = { wrapText: true, vertical: 'middle' };
+        row.height = 60;
+        var buf = photoBuffers[i];
+        if(buf){
+          var imgId = wb.addImage({ buffer: buf, extension: 'jpeg' });
+          ws.addImage(imgId, { tl: { col: 9, row: row.number - 1 }, ext: { width: 56, height: 76 } });
+        }
+      });
+
+      var totalRowIdx = lines.length + 2;
+      ws.getCell('H' + totalRowIdx).value = 'TOTAL';
+      ws.getCell('H' + totalRowIdx).font = { bold: true };
+      ws.getCell('I' + totalRowIdx).value = total;
+      ws.getCell('I' + totalRowIdx).font = { bold: true };
+
+      var safeName = (state.myResellerName || 'bill').replace(/[^A-Za-z0-9]+/g, '_');
+      var buffer = await wb.xlsx.writeBuffer();
+      var blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'Gurukrupa_Bill_' + safeName + '_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }catch(err){
+      showToast('Could not build the Excel file: ' + (err && err.message ? err.message : 'try again'));
+    }
+    if(btn){ btn.disabled = false; btn.textContent = originalLabel; }
   }
 
   // ===== PASSWORD RECOVERY (reset link landed back on the site) =====
@@ -5631,7 +5752,12 @@
 
     var pendingCount = state.orders.filter(function(o){ var ds = orderDisplayStatus(o); return ds === 'pending' || ds === 'partial'; }).length;
 
-    var shellHtml = '<div class="brand-wrap"><div class="menu-row no-print"><button class="menu-btn" id="sidebarOpenBtn"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></div><div class="app-brand" id="logoReloadBtn" style="cursor:pointer;">GURUKRUPA</div><div class="app-brand-sub">SAREES</div></div>';
+    var shellHtml = '<div class="brand-wrap"><div class="menu-row no-print"><button class="menu-btn" id="sidebarOpenBtn"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></div>';
+    if(isReseller()){
+      var unreadCount = state.resellerNotifications.filter(function(n){ return !n.read_at; }).length;
+      shellHtml += '<div class="notif-row no-print"><button class="notif-btn" id="notifBellBtn" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>' + (unreadCount > 0 ? '<span class="notif-badge">' + (unreadCount > 9 ? '9+' : unreadCount) + '</span>' : '') + '</button></div>';
+    }
+    shellHtml += '<div class="app-brand" id="logoReloadBtn" style="cursor:pointer;">GURUKRUPA</div><div class="app-brand-sub">SAREES</div></div>';
     shellHtml += '<div class="tabs no-print">';
     if(isReseller()){
       shellHtml += '<div class="tab-btn' + (state.tab==='book'?' active':'') + '" data-tab="book"><span class="tab-icon">\ud83d\udcf8</span>Book Order</div>';
@@ -5746,6 +5872,8 @@
     }
     document.getElementById('sidebarOpenBtn').addEventListener('click', openSidebar);
     document.getElementById('logoReloadBtn').addEventListener('click', function(){ window.location.reload(); });
+    var notifBtn = document.getElementById('notifBellBtn');
+    if(notifBtn) notifBtn.addEventListener('click', openResellerNotifications);
     document.getElementById('sidebarCloseBtn').addEventListener('click', closeSidebar);
     document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
 
