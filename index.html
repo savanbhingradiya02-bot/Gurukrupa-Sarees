@@ -494,6 +494,12 @@
     gpayTopupNoteVal: '',
     shopChallanPhotos: {},
     shopUpiVpas: {},
+    resellerLogins: {},
+    editingListItem: null,
+    editingListItemVal: '',
+    pendingCreateLoginFor: null,
+    createLoginEmailVal: '',
+    createLoginPasswordVal: '',
     pendingChallanShop: null,
     purchaseShopView: null,
     purchaseSelection: {},
@@ -1021,6 +1027,16 @@
       });
       state.shopChallanPhotos = challanMap;
       state.shopUpiVpas = upiMap;
+
+      state.resellerLogins = {};
+      if(isAdminStaff()){
+        try{
+          var { data: resellerProfiles } = await sb.from('profiles').select('reseller_name,email,created_at').eq('role', 'reseller');
+          (resellerProfiles||[]).forEach(function(p){
+            if(p.reseller_name){ state.resellerLogins[p.reseller_name] = { email: p.email, created_at: p.created_at }; }
+          });
+        }catch(e){ /* if this isn't readable, Manage Lists just always shows "Create login" */ }
+      }
 
       var hiddenResellers = {};
       (resellerRows||[]).forEach(function(r){
@@ -1656,6 +1672,112 @@
     renderManageListsModal();
   }
 
+  function getResellerActivity(name){
+    var orders = state.orders.filter(function(o){ return o.reseller_name === name; });
+    if(orders.length === 0) return { count: 0, lastDate: null };
+    var lastDate = orders.reduce(function(latest, o){
+      var t = new Date(o.created_at).getTime();
+      return t > latest ? t : latest;
+    }, 0);
+    return { count: orders.length, lastDate: lastDate };
+  }
+
+  // Renaming a list entry has to follow through everywhere that name is
+  // used as free text — otherwise old orders quietly stop matching the
+  // renamed entry. Resellers additionally cascade into any linked login's
+  // profile row, so their portal keeps showing their own orders.
+  async function renameListEntry(tab, oldName, newName){
+    if(!newName || newName === oldName) return;
+    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers', sizes: 'sizes' };
+    try{
+      var { error } = await sb.from(tableMap[tab]).update({ name: newName }).eq('name', oldName);
+      if(error) throw error;
+
+      if(tab === 'resellers'){
+        await sb.from('orders').update({ reseller_name: newName }).eq('reseller_name', oldName);
+        await sb.from('profiles').update({ reseller_name: newName }).eq('reseller_name', oldName);
+        state.orders.forEach(function(o){ if(o.reseller_name === oldName) o.reseller_name = newName; });
+        state.resellers = state.resellers.map(function(n){ return n === oldName ? newName : n; }).sort();
+        if(state.resellerLogins[oldName]){ state.resellerLogins[newName] = state.resellerLogins[oldName]; delete state.resellerLogins[oldName]; }
+      }else if(tab === 'shops'){
+        await sb.from('order_items').update({ shop_name: newName }).eq('shop_name', oldName);
+        state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(it.shop_name === oldName) it.shop_name = newName; }); });
+        state.shops = state.shops.map(function(n){ return n === oldName ? newName : n; }).sort();
+        if(state.shopChallanPhotos[oldName]){ state.shopChallanPhotos[newName] = state.shopChallanPhotos[oldName]; delete state.shopChallanPhotos[oldName]; }
+        if(state.shopUpiVpas[oldName]){ state.shopUpiVpas[newName] = state.shopUpiVpas[oldName]; delete state.shopUpiVpas[oldName]; }
+      }else if(tab === 'couriers'){
+        await sb.from('orders').update({ courier: newName }).eq('courier', oldName);
+        state.orders.forEach(function(o){ if(o.courier === oldName) o.courier = newName; });
+        state.couriers = (state.couriers||[]).map(function(n){ return n === oldName ? newName : n; }).sort();
+      }else{
+        await sb.from('order_items').update({ size: newName }).eq('size', oldName);
+        state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(it.size === oldName) it.size = newName; }); });
+        state.sizes = (state.sizes||[]).map(function(n){ return n === oldName ? newName : n; }).sort();
+      }
+      showToast('Renamed to ' + newName + ' \u2014 updated everywhere it was used');
+      state.editingListItem = null;
+      renderManageListsModal();
+    }catch(e){
+      showToast('Could not rename: ' + (e && e.message ? e.message : 'try again'));
+    }
+  }
+
+  // ===== ADMIN: CREATE RESELLER/STAFF LOGIN =====
+  // Goes through the same server-side pattern as Switch Account — the
+  // service role key needed to create a real login never touches the
+  // browser. This function just calls that endpoint and reports back.
+  async function createLoginAccount(email, password, role, resellerName){
+    var resp = await fetch('/api/create-account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.session.access_token },
+      body: JSON.stringify({ email: email, password: password, role: role, resellerName: resellerName, displayName: resellerName })
+    });
+    var data = await resp.json();
+    if(!resp.ok) throw new Error(data.error || 'Could not create login');
+    return data;
+  }
+
+  function openCreateResellerLoginModal(resellerName){
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:340px;text-align:left;">';
+    html += '<p style="font-size:14px;font-weight:700;margin:0 0 4px;">Create login \u2014 ' + esc(resellerName) + '</p>';
+    html += '<p style="font-size:11.5px;color:#9aa0a6;margin:0 0 12px;">They\u2019ll be able to sign in and see only their own orders.</p>';
+    html += '<label>Email</label><input type="text" id="createLoginEmailInput" autocomplete="off" placeholder="name+01@gmail.com" value="' + esc(state.createLoginEmailVal) + '" style="margin-bottom:10px;">';
+    html += '<label>Password</label><input type="text" id="createLoginPasswordInput" autocomplete="off" placeholder="At least 6 characters" value="' + esc(state.createLoginPasswordVal) + '" style="margin-bottom:6px;">';
+    html += '<div id="createLoginError" class="error-text" style="display:none;"></div>';
+    html += '<div class="modal-actions"><button id="createLoginCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button><button id="createLoginSaveBtn" style="background:#d97a3f;color:#fff;border:none;">Create</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    var emailInp = document.getElementById('createLoginEmailInput');
+    var pwInp = document.getElementById('createLoginPasswordInput');
+    emailInp.focus();
+    emailInp.addEventListener('input', function(){ state.createLoginEmailVal = emailInp.value; });
+    pwInp.addEventListener('input', function(){ state.createLoginPasswordVal = pwInp.value; });
+    document.getElementById('createLoginCancelBtn').addEventListener('click', function(){
+      state.createLoginEmailVal = ''; state.createLoginPasswordVal = '';
+      renderManageListsModal();
+    });
+    document.getElementById('createLoginSaveBtn').addEventListener('click', async function(){
+      var email = (emailInp.value || '').trim();
+      var pw = (pwInp.value || '').trim();
+      var errEl = document.getElementById('createLoginError');
+      if(!email || !pw){ errEl.textContent = 'Enter both email and password'; errEl.style.display = 'block'; return; }
+      if(pw.length < 6){ errEl.textContent = 'Password must be at least 6 characters'; errEl.style.display = 'block'; return; }
+      errEl.style.display = 'none';
+      this.disabled = true; this.textContent = 'Creating...';
+      try{
+        await createLoginAccount(email, pw, 'reseller', resellerName);
+        state.resellerLogins[resellerName] = { email: email, created_at: new Date().toISOString() };
+        state.createLoginEmailVal = ''; state.createLoginPasswordVal = '';
+        showToast('Login created for ' + resellerName);
+        renderManageListsModal();
+      }catch(err){
+        errEl.textContent = err && err.message ? err.message : 'Could not create login';
+        errEl.style.display = 'block';
+        this.disabled = false; this.textContent = 'Create';
+      }
+    });
+  }
+
   function openShopUpiEditModal(shopName){
     var current = state.shopUpiVpas[shopName] || '';
     var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:320px;text-align:left;">';
@@ -1709,21 +1831,41 @@
       html += '<p style="font-size:12.5px;color:#80868b;">None added yet.</p>';
     }
     list.forEach(function(name){
+      var editing = state.editingListItem && state.editingListItem.tab === tab && state.editingListItem.name === name;
       html += '<div style="display:flex;flex-direction:column;gap:6px;background:#202124;border:1px solid #3c4043;border-radius:8px;padding:8px 10px;">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
-      html += '<span style="font-size:13px;">' + esc(name) + '</span>';
-      html += '<div style="display:flex;align-items:center;gap:6px;">';
-      if(tab === 'shops'){
-        html += '<button class="shop-challan-btn" data-shop="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;font-size:11px;padding:3px 7px;">' + (state.shopChallanPhotos[name] ? '\ud83d\udcc4 Change' : '\ud83d\udcc4 Add challan pic') + '</button>';
-        html += '<button class="shop-upi-btn" data-shop="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;font-size:11px;padding:3px 7px;">' + (state.shopUpiVpas[name] ? '\ud83d\udcf1 Change UPI' : '\ud83d\udcf1 Add UPI ID') + '</button>';
+      if(editing){
+        html += '<div style="display:flex;gap:6px;align-items:center;">';
+        html += '<input type="text" id="editListItemInput" value="' + esc(state.editingListItemVal) + '" style="flex:1;padding:6px 8px;font-size:13px;">';
+        html += '<button class="edit-list-save-btn" style="background:#d97a3f;border:none;color:#fff;border-radius:6px;font-size:11px;padding:6px 10px;cursor:pointer;">Save</button>';
+        html += '<button class="edit-list-cancel-btn" style="background:none;border:1px solid #3c4043;color:#9aa0a6;border-radius:6px;font-size:11px;padding:6px 10px;cursor:pointer;">Cancel</button>';
+        html += '</div>';
+      }else{
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+        html += '<span style="font-size:13px;">' + esc(name) + '</span>';
+        html += '<div style="display:flex;align-items:center;gap:6px;">';
+        html += '<button class="edit-list-item-btn" data-tab="' + tab + '" data-name="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;font-size:11px;padding:3px 7px;">\u270f\ufe0f</button>';
+        if(tab === 'shops'){
+          html += '<button class="shop-challan-btn" data-shop="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;font-size:11px;padding:3px 7px;">' + (state.shopChallanPhotos[name] ? '\ud83d\udcc4 Change' : '\ud83d\udcc4 Add challan pic') + '</button>';
+          html += '<button class="shop-upi-btn" data-shop="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;font-size:11px;padding:3px 7px;">' + (state.shopUpiVpas[name] ? '\ud83d\udcf1 Change UPI' : '\ud83d\udcf1 Add UPI ID') + '</button>';
+        }
+        html += '<button class="del-list-item-btn" data-name="' + esc(name) + '" style="background:none;border:none;color:#f28b82;cursor:pointer;font-size:16px;">\u00d7</button>';
+        html += '</div></div>';
       }
-      html += '<button class="del-list-item-btn" data-name="' + esc(name) + '" style="background:none;border:none;color:#f28b82;cursor:pointer;font-size:16px;">\u00d7</button>';
-      html += '</div></div>';
       if(tab === 'shops' && state.shopChallanPhotos[name]){
         html += '<img src="' + state.shopChallanPhotos[name] + '" style="width:100%;max-height:120px;object-fit:contain;border-radius:6px;border:1px solid #3c4043;">';
       }
       if(tab === 'shops' && state.shopUpiVpas[name]){
         html += '<div style="font-size:11.5px;color:#7fd99a;">\ud83d\udcf1 ' + esc(state.shopUpiVpas[name]) + '</div>';
+      }
+      if(tab === 'resellers'){
+        var activity = getResellerActivity(name);
+        html += '<div style="font-size:11px;color:#9aa0a6;">' + activity.count + ' order' + (activity.count!==1?'s':'') + (activity.lastDate ? ' \u00b7 last ' + formatTime(activity.lastDate) : '') + '</div>';
+        var login = state.resellerLogins[name];
+        if(login){
+          html += '<div style="font-size:11.5px;color:#7fd99a;">\ud83d\udd11 ' + esc(login.email) + '</div>';
+        }else{
+          html += '<button class="create-login-btn" data-reseller="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#f2a76a;cursor:pointer;font-size:11px;padding:4px 8px;align-self:flex-start;">\ud83d\udd11 Create login</button>';
+        }
       }
       html += '</div>';
     });
@@ -1741,6 +1883,34 @@
     });
     document.querySelectorAll('.shop-upi-btn').forEach(function(btn){
       btn.addEventListener('click', function(){ openShopUpiEditModal(btn.getAttribute('data-shop')); });
+    });
+    document.querySelectorAll('.edit-list-item-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        state.editingListItem = { tab: btn.getAttribute('data-tab'), name: btn.getAttribute('data-name') };
+        state.editingListItemVal = btn.getAttribute('data-name');
+        renderManageListsModal();
+      });
+    });
+    var editInp = document.getElementById('editListItemInput');
+    if(editInp){
+      editInp.focus();
+      editInp.select();
+      editInp.addEventListener('input', function(){ state.editingListItemVal = editInp.value; });
+      editInp.addEventListener('keydown', function(e){ if(e.key === 'Enter') document.querySelector('.edit-list-save-btn').click(); });
+    }
+    var editSaveBtn = document.querySelector('.edit-list-save-btn');
+    if(editSaveBtn) editSaveBtn.addEventListener('click', function(){
+      var newName = (state.editingListItemVal || '').trim();
+      if(!newName){ showToast('Enter a name'); return; }
+      renameListEntry(state.editingListItem.tab, state.editingListItem.name, newName);
+    });
+    var editCancelBtn = document.querySelector('.edit-list-cancel-btn');
+    if(editCancelBtn) editCancelBtn.addEventListener('click', function(){
+      state.editingListItem = null;
+      renderManageListsModal();
+    });
+    document.querySelectorAll('.create-login-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){ openCreateResellerLoginModal(btn.getAttribute('data-reseller')); });
     });
     document.getElementById('shopChallanFileInput').addEventListener('change', async function(e){
       var f = e.target.files && e.target.files[0];
