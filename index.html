@@ -118,11 +118,27 @@
     box-shadow: 0 2px 6px rgba(224,92,92,0.6), 0 0 0 2px #131314;
   }
   label { font-size: 14.5px; color: #9aa0a6; display: block; margin-bottom: 6px; font-weight: 500; }
-  input[type=text], input[type=email], input[type=password], textarea, select {
+  input[type=text], input[type=email], input[type=password], input[type=number], input[type=date], textarea, select {
     width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid #3c4043;
     font-size: 16px; font-family: inherit; background: #28292c; color: #e8eaed;
+    -webkit-appearance: none; appearance: none;
   }
-  select { cursor: pointer; }
+  input[type=checkbox] { accent-color: #d97a3f; }
+  /* Custom checkbox: native ones render a plain white box on many mobile
+     browsers regardless of accent-color. This draws it fully ourselves so
+     it always matches the theme. */
+  input[type=checkbox].custom-chk {
+    -webkit-appearance: none; appearance: none;
+    width: 23px; height: 23px; border-radius: 7px; border: 2px solid #5f6368;
+    background: #202124; position: relative; cursor: pointer; flex-shrink: 0; margin: 0;
+    transition: all 0.12s;
+  }
+  input[type=checkbox].custom-chk:checked { background: #d97a3f; border-color: #d97a3f; }
+  input[type=checkbox].custom-chk:checked::after {
+    content: ''; position: absolute; left: 7px; top: 3px; width: 6px; height: 11px;
+    border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
+  }
+  select { cursor: pointer; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239aa0a6' stroke-width='2.5'><path d='M6 9l6 6 6-6'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px; }
   select:invalid { color: #80868b; }
   input::placeholder, textarea::placeholder { color: #80868b; }
   textarea { resize: vertical; }
@@ -257,6 +273,23 @@
   .shop-tray-item { position: relative; width: 110px; border-radius: 8px; overflow: hidden; background: #202124; }
   .shop-tray-item img { width: 100%; height: 140px; object-fit: cover; display: block; cursor: zoom-in; }
   .shop-tray-caption { font-size: 10px; color: #9aa0a6; padding: 4px 5px; line-height: 1.3; }
+  .purchase-album { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .purchase-tile { position: relative; border-radius: 12px; overflow: hidden; background: #202124; border: 1px solid #3c4043; }
+  .purchase-tile img { width: 100%; height: 170px; object-fit: cover; display: block; }
+  .purchase-tile.selected { border-color: #d97a3f; box-shadow: 0 0 0 2px rgba(217,122,63,0.5); }
+  .purchase-tile-chk {
+    position: absolute; top: 8px; left: 8px; width: 24px; height: 24px; z-index: 2;
+    -webkit-appearance: none; appearance: none; border-radius: 7px; border: 2px solid #fff;
+    background: rgba(0,0,0,0.35); cursor: pointer; margin: 0;
+  }
+  .purchase-tile-chk:checked { background: #d97a3f; border-color: #d97a3f; }
+  .purchase-tile-chk:checked::after {
+    content: ''; position: absolute; left: 6px; top: 2px; width: 6px; height: 11px;
+    border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
+  }
+  .purchase-tile-dots { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; border: none; font-size: 16px; font-weight: 700; cursor: pointer; z-index: 2; display: flex; align-items: center; justify-content: center; }
+  .purchase-tile-badge { position: absolute; left: 6px; bottom: 6px; right: 6px; font-size: 10px; font-weight: 700; padding: 3px 7px; border-radius: 8px; text-align: center; }
+  .purchase-tile-order { position: absolute; top: 8px; left: 38px; font-size: 10.5px; font-weight: 700; color: #fff; background: rgba(0,0,0,0.55); padding: 2px 7px; border-radius: 8px; }
   .banner.warn { background: rgba(253,214,99,0.12); border: 1px solid rgba(253,214,99,0.3); color: #fdd663; }
   .banner.err { background: rgba(242,139,130,0.12); border: 1px solid rgba(242,139,130,0.3); color: #f28b82; }
 
@@ -461,7 +494,9 @@
     purchasePhotoPreview: null,
     purchaseScreenshotBlob: null,
     purchaseScreenshotPreview: null,
-    purchaseShopChangeItemId: null,
+    purchaseRateDrafts: {},
+    purchaseBatchChk: {},
+    purchaseBatchAmount: '',
     purchaseActionError: '',
     purchaseSaving: false,
     handover: { active: false, shop: null, unlockInput: '', unlockError: '' },
@@ -3941,7 +3976,8 @@
     }catch(e){
       showToast('Could not save restock date: ' + (e && e.message ? e.message : 'try again'));
     }
-    state.purchaseSelection = {};
+    // Deliberately NOT clearing purchaseSelection here — Rajan may still be
+    // assigning different dates to other pieces in the same batch.
     render();
   }
 
@@ -4024,6 +4060,11 @@
     wirePurchaseShopList();
   }
 
+  function shopMatchesPolarise(name){
+    var n = (name||'').toLowerCase();
+    return n.indexOf('polarise') !== -1 || n.indexOf('sanskruti') !== -1;
+  }
+
   function renderPurchaseShopList(){
     var bal = getCashBalance(), gbal = getGpayBalance();
     var groups = computeShopGroups();
@@ -4034,8 +4075,8 @@
     html += '</div>';
 
     html += '<div class="filters">';
-    ['pending','all'].forEach(function(f){
-      html += '<div class="filter-chip' + (state.purchaseFilter===f?' active':'') + '" data-shopfilter="' + f + '">' + f.charAt(0).toUpperCase()+f.slice(1) + '</div>';
+    [['pending','Pending'],['all','All'],['polarise','Polarise'],['fabrizo','Fabrizo']].forEach(function(f){
+      html += '<div class="filter-chip' + (state.purchaseFilter===f[0]?' active':'') + '" data-shopfilter="' + f[0] + '">' + f[1] + '</div>';
     });
     html += '</div>';
 
@@ -4043,6 +4084,8 @@
     groups.forEach(function(g){
       var pending = g.rows.filter(function(r){ return !r.item.purchased; });
       if(state.purchaseFilter === 'pending' && pending.length === 0) return;
+      if(state.purchaseFilter === 'polarise' && !shopMatchesPolarise(g.name)) return;
+      if(state.purchaseFilter === 'fabrizo' && shopMatchesPolarise(g.name)) return;
       shown++;
       var restockNeeded = pending.filter(function(r){ return !r.item.restock_date; }).length;
       html += '<div class="order-card purchaseShopCard" data-shop="' + esc(g.name) + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">';
@@ -4051,7 +4094,7 @@
       if(restockNeeded > 0){ html += '<div style="font-size:11.5px;color:#f2a76a;margin-top:2px;">\u26a0\ufe0f ' + restockNeeded + ' need restock date</div>'; }
       html += '</div><span style="color:#9aa0a6;font-size:18px;">\u203a</span></div>';
     });
-    if(shown === 0){ html += '<div class="empty-state">' + (state.purchaseFilter==='pending' ? 'Nothing pending to collect.' : 'No shops yet.') + '</div>'; }
+    if(shown === 0){ html += '<div class="empty-state">' + (state.purchaseFilter==='pending' ? 'Nothing pending to collect.' : 'No shops match.') + '</div>'; }
     return html;
   }
 
@@ -4066,6 +4109,8 @@
       card.addEventListener('click', function(){
         state.purchaseShopView = card.getAttribute('data-shop');
         state.purchaseSelection = {};
+        state.purchaseBatchChk = {};
+        state.purchaseRateDrafts = {};
         state.purchaseActionPanel = null;
         render();
       });
@@ -4083,6 +4128,7 @@
     var html = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">';
     html += '<button class="btn-secondary" id="purchaseBackBtn" style="width:auto;padding:8px 14px;">\u2039 Shops</button>';
     html += '<div style="font-size:16px;font-weight:700;color:#e8eaed;flex:1;">' + esc(shopName) + '</div>';
+    html += '<button class="btn-secondary" id="recentPurchasesBtn" style="width:auto;padding:8px 11px;font-size:16px;" title="Recent purchases at this shop">\ud83d\udd58</button>';
     html += '</div>';
 
     html += '<button class="btn-secondary" id="handoverModeBtn" style="width:100%;margin-bottom:12px;">\ud83d\udd12 Show this shop to someone else (locked view)</button>';
@@ -4094,82 +4140,42 @@
     html += '</div>';
 
     if(pendingRows.length > 0){
-      html += '<button class="btn-secondary" id="purchaseSelectAllBtn" style="width:auto;padding:7px 14px;margin-bottom:10px;">' + (selCount === pendingRows.length ? 'Unselect all' : 'Select all pending') + '</button>';
+      html += '<button class="btn-secondary" id="purchaseSelectAllBtn" style="width:auto;padding:7px 14px;margin-bottom:12px;">' + (selCount === pendingRows.length ? 'Unselect all' : 'Select all pending') + '</button>';
     }
 
+    if(rows.length === 0){
+      html += '<div class="empty-state">Nothing here.</div>';
+    }
+
+    html += '<div class="purchase-album">';
     rows.forEach(function(r){
       var o = r.order, it = r.item;
-      var checked = state.purchaseSelection[it.id] ? 'checked' : '';
-      html += '<div class="order-card">';
-      html += '<div style="display:flex;gap:10px;align-items:flex-start;">';
-      if(!it.purchased){ html += '<input type="checkbox" class="purchaseItemChk" data-item="' + it.id + '" ' + checked + ' style="width:22px;height:22px;flex-shrink:0;margin-top:4px;accent-color:#d97a3f;">'; }
-      html += '<img class="purchaseThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url || it.photo_url) + '" style="width:56px;height:70px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;flex-shrink:0;cursor:zoom-in;">';
-      html += '<div style="flex:1;min-width:0;">';
-      html += '<div><span class="order-id">#' + esc(o.id) + '</span>' + (o.urgent ? ' <span style="font-size:11px;color:#f28b82;">\ud83d\udea8</span>' : '') + '</div>';
-      html += '<div style="font-size:12px;color:#9aa0a6;">' + esc(o.reseller_name||'') + (it.size ? ' \u00b7 Size ' + esc(it.size) : '') + '</div>';
+      var sel = !!state.purchaseSelection[it.id];
+      html += '<div>';
+      html += '<div class="purchase-tile' + (sel?' selected':'') + '">';
+      if(!it.purchased){ html += '<input type="checkbox" class="purchase-tile-chk purchaseItemChk" data-item="' + it.id + '" ' + (sel?'checked':'') + '>'; }
+      html += '<span class="purchase-tile-order">#' + esc(o.id) + (o.urgent?' \ud83d\udea8':'') + '</span>';
+      html += '<button class="purchase-tile-dots photoActionsBtn" data-item="' + it.id + '">\u22ee</button>';
+      html += '<img class="purchaseThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url || it.photo_url) + '">';
       if(it.purchased){
-        html += '<div style="font-size:12px;color:#7fd99a;font-weight:600;margin-top:4px;">\u2713 \u20b9' + esc(String(it.purchase_rate)) + ' \u00b7 ' + esc((it.payment_method||'').toUpperCase()) + '</div>';
+        html += '<div class="purchase-tile-badge" style="background:rgba(127,217,154,0.9);color:#0b1f14;">\u2713 \u20b9' + esc(String(it.purchase_rate)) + '</div>';
       }else if(it.restock_date){
-        html += '<div style="font-size:12px;color:#f2a76a;font-weight:600;margin-top:4px;">\ud83d\udcc5 Restock: ' + esc(formatRestockDate(it.restock_date)) + '</div>';
+        html += '<div class="purchase-tile-badge" style="background:rgba(242,167,106,0.92);color:#3a2a12;">\ud83d\udcc5 ' + esc(formatRestockDate(it.restock_date)) + '</div>';
+      }else{
+        html += '<div class="purchase-tile-badge" style="background:rgba(0,0,0,0.6);color:#e8eaed;">Pending</div>';
       }
-      html += '<button class="btn-secondary purchaseChangeShopBtn" data-item="' + it.id + '" style="margin-top:6px;font-size:11px;padding:4px 9px;">Wrong shop? Change</button>';
-      if(state.purchaseShopChangeItemId === it.id){
-        html += '<div style="margin-top:8px;"><input type="text" class="purchaseNewShopInput" data-item="' + it.id + '" list="shopList" autocomplete="off" placeholder="New shop name" style="margin-bottom:6px;">';
-        html += '<button class="btn-primary purchaseConfirmShopBtn" data-item="' + it.id + '" style="width:auto;padding:7px 14px;font-size:12px;">Move</button></div>';
-      }
-      html += '</div></div></div>';
+      html += '</div>';
+      if(it.size){ html += '<div style="font-size:11px;color:#9aa0a6;padding:4px 2px 0;">Size: ' + esc(it.size) + '</div>'; }
+      html += '</div>';
     });
+    html += '</div>';
 
     if(selCount > 0){
-      var actionPanel = state.purchaseActionPanel;
-      html += '<div class="order-card" style="border-color:#d97a3f;">';
-      html += '<p style="font-size:13px;font-weight:700;color:#e8eaed;margin:0 0 10px;">' + selCount + ' piece' + (selCount!==1?'s':'') + ' selected</p>';
-      html += '<div style="display:flex;gap:8px;margin-bottom:10px;">';
-      html += '<button class="btn-primary purchaseActionBtn" data-panel="buy" style="flex:1;' + (actionPanel==='buy'?'opacity:0.85;':'') + '">\u2713 Mark Purchased</button>';
-      html += '<button class="btn-secondary purchaseActionBtn" data-panel="restock" style="flex:1;">\ud83d\udcc5 Set Restock Date</button>';
+      html += '<div style="position:fixed;left:0;right:0;bottom:0;background:#18191b;border-top:1px solid #3c4043;padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;z-index:15;max-width:480px;margin:0 auto;box-shadow:0 -4px 16px rgba(0,0,0,0.4);">';
+      html += '<button class="btn-primary" id="purchaseOpenBuyBtn" style="flex:1;">\u2713 Mark Purchased (' + selCount + ')</button>';
+      html += '<button class="btn-secondary" id="purchaseOpenRestockBtn" style="flex:1;">\ud83d\udcc5 Restock (' + selCount + ')</button>';
       html += '</div>';
-
-      if(actionPanel === 'buy'){
-        html += '<div id="purchaseBuyPanel">';
-        html += '<label>Rate for each piece</label>';
-        rows.forEach(function(r){
-          if(!state.purchaseSelection[r.item.id]) return;
-          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:12px;color:#9aa0a6;flex:1;">#' + esc(r.order.id) + '</span><input type="number" min="0" inputmode="decimal" class="purchaseRateInput" data-item="' + r.item.id + '" placeholder="\u20b9" style="width:100px;" value="' + (r.item.purchase_rate || '') + '"></div>';
-        });
-        html += '<label style="margin-top:10px;">Payment method</label>';
-        html += '<select id="purchaseMethodSelect" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #3c4043;background:#202124;color:#e8eaed;font-size:14px;margin-bottom:10px;">';
-        html += '<option value="">Choose method</option><option value="cash">Cash</option><option value="gpay">GPay</option><option value="challan">Challan</option><option value="message">Message</option>';
-        html += '</select>';
-
-        var method = state.purchasePendingMethod || '';
-        if(method === 'challan'){
-          var chUrl = state.shopChallanPhotos[shopName];
-          if(chUrl){ html += '<div class="field-hint">Challan reference for ' + esc(shopName) + ':</div><img src="' + chUrl + '" style="width:100%;max-height:220px;object-fit:contain;border-radius:10px;border:1px solid #3c4043;margin-bottom:10px;">'; }
-          else{ html += '<div class="field-hint" style="color:#f2a76a;">No challan photo saved for this shop yet \u2014 ask Soham to add one in Manage Lists.</div>'; }
-        }
-        if(method === 'message'){
-          html += '<div class="field-hint">Add a screenshot of the payment message as proof:</div>';
-          html += '<button class="btn-secondary" id="purchaseScreenshotBtn" style="width:100%;margin-bottom:10px;">\ud83d\udcf7 Add message screenshot</button>';
-          html += '<input type="file" id="purchaseScreenshotInput" accept="image/*" style="display:none;">';
-          if(state.purchaseScreenshotPreview){ html += '<img src="' + state.purchaseScreenshotPreview + '" style="width:100%;max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #3c4043;margin-bottom:10px;">'; }
-        }
-
-        html += '<button class="btn-secondary" id="purchasePhotoBtn" style="width:100%;margin-bottom:10px;">\ud83d\udcf8 ' + (state.purchasePhotoPreview ? 'Retake purchase photo' : 'Take purchase-time photo') + '</button>';
-        html += '<input type="file" id="purchasePhotoInput" accept="image/*" capture="environment" style="display:none;">';
-        if(state.purchasePhotoPreview){ html += '<img src="' + state.purchasePhotoPreview + '" style="width:100%;max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #3c4043;margin-bottom:10px;">'; }
-
-        if(state.purchaseActionError){ html += '<div class="error-text">' + esc(state.purchaseActionError) + '</div>'; }
-        html += '<button class="btn-primary" id="purchaseConfirmBuyBtn" ' + (state.purchaseSaving?'disabled':'') + '>' + (state.purchaseSaving?'Saving...':'Confirm purchase') + '</button>';
-        html += '</div>';
-      }else if(actionPanel === 'restock'){
-        html += '<div id="purchaseRestockPanel"><label>When will it be ready?</label>';
-        html += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
-        getRestockDateSuggestions().forEach(function(d){
-          html += '<div class="filter-chip purchaseRestockChip" data-iso="' + d.iso + '" style="cursor:pointer;">' + d.label + '</div>';
-        });
-        html += '</div></div>';
-      }
-      html += '</div>';
+      html += '<div style="height:66px;"></div>';
     }
 
     return html;
@@ -4180,7 +4186,8 @@
     if(backBtn) backBtn.addEventListener('click', function(){
       state.purchaseShopView = null;
       state.purchaseSelection = {};
-      state.purchaseActionPanel = null;
+      state.purchaseBatchChk = {};
+      state.purchaseRateDrafts = {};
       render();
     });
     document.querySelectorAll('[data-shopfilter]').forEach(function(chip){
@@ -4188,6 +4195,8 @@
     });
     var handoverBtn = document.getElementById('handoverModeBtn');
     if(handoverBtn) handoverBtn.addEventListener('click', function(){ enterHandoverMode(state.purchaseShopView); });
+    var recentBtn = document.getElementById('recentPurchasesBtn');
+    if(recentBtn) recentBtn.addEventListener('click', function(){ openRecentShopPurchasesModal(state.purchaseShopView); });
 
     var selectAllBtn = document.getElementById('purchaseSelectAllBtn');
     if(selectAllBtn) selectAllBtn.addEventListener('click', function(){
@@ -4209,45 +4218,166 @@
         render();
       });
     });
-    document.querySelectorAll('.purchaseChangeShopBtn').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        var id = parseInt(btn.getAttribute('data-item'), 10);
-        state.purchaseShopChangeItemId = (state.purchaseShopChangeItemId === id) ? null : id;
-        render();
+    document.querySelectorAll('.photoActionsBtn').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        openPhotoActionsModal(parseInt(btn.getAttribute('data-item'), 10));
       });
     });
-    document.querySelectorAll('.purchaseConfirmShopBtn').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        var id = parseInt(btn.getAttribute('data-item'), 10);
-        var inp = document.querySelector('.purchaseNewShopInput[data-item="' + id + '"]');
-        var val = inp ? inp.value.trim() : '';
-        if(!val){ showToast('Enter a shop name'); return; }
-        state.purchaseShopChangeItemId = null;
-        reassignItemShop(id, val);
-      });
+    var openBuyBtn = document.getElementById('purchaseOpenBuyBtn');
+    if(openBuyBtn) openBuyBtn.addEventListener('click', function(){
+      state.purchaseActionError = '';
+      openPurchaseBuyModal();
     });
-    document.querySelectorAll('.purchaseActionBtn').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        var panel = btn.getAttribute('data-panel');
-        state.purchaseActionPanel = (state.purchaseActionPanel === panel) ? null : panel;
-        state.purchaseActionError = '';
-        render();
-      });
+    var openRestockBtn = document.getElementById('purchaseOpenRestockBtn');
+    if(openRestockBtn) openRestockBtn.addEventListener('click', function(){
+      openPurchaseRestockModal();
     });
-    document.querySelectorAll('.purchaseRestockChip').forEach(function(chip){
-      chip.addEventListener('click', function(){
-        var ids = Object.keys(state.purchaseSelection).filter(function(k){ return state.purchaseSelection[k]; }).map(Number);
-        restockSelectedItems(ids, chip.getAttribute('data-iso'));
-        state.purchaseActionPanel = null;
-      });
+  }
+
+  // ===== PURCHASE: photo actions (view / change shop) =====
+
+  function openPhotoActionsModal(itemId){
+    var item = null, order = null;
+    state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(it.id === itemId){ item = it; order = o; } }); });
+    if(!item) return;
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:320px;text-align:left;">';
+    html += '<p style="font-size:14px;font-weight:700;margin:0 0 12px;">#' + esc(order.id) + '</p>';
+    html += '<button class="btn-secondary photoActionViewBtn" style="width:100%;margin-bottom:8px;text-align:left;">\ud83d\udd0d View photo</button>';
+    if(!item.purchased){
+      html += '<button class="btn-secondary photoActionChangeShopBtn" style="width:100%;text-align:left;">\ud83d\udd04 Wrong shop? Change</button>';
+      html += '<div id="photoActionShopChangeArea" style="display:none;margin-top:10px;">';
+      html += '<input type="text" id="photoActionNewShopInput" list="shopList" autocomplete="off" placeholder="New shop name" style="margin-bottom:8px;">';
+      html += '<button class="btn-primary" id="photoActionConfirmShopBtn" style="width:auto;padding:8px 14px;">Move</button></div>';
+    }
+    html += '<div class="modal-actions"><button id="photoActionCloseBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Close</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    document.getElementById('photoActionCloseBtn').addEventListener('click', closeModal);
+    document.querySelector('.photoActionViewBtn').addEventListener('click', function(){ openZoom(item.photo_url); });
+    var changeBtn = document.querySelector('.photoActionChangeShopBtn');
+    if(changeBtn) changeBtn.addEventListener('click', function(){
+      var area = document.getElementById('photoActionShopChangeArea');
+      area.style.display = area.style.display === 'none' ? 'block' : 'none';
+    });
+    var confirmShopBtn = document.getElementById('photoActionConfirmShopBtn');
+    if(confirmShopBtn) confirmShopBtn.addEventListener('click', function(){
+      var val = (document.getElementById('photoActionNewShopInput').value || '').trim();
+      if(!val){ showToast('Enter a shop name'); return; }
+      closeModal();
+      reassignItemShop(itemId, val);
+    });
+  }
+
+  // ===== PURCHASE: mark-purchased bottom sheet =====
+
+  function updateBuyModalTotal(){
+    var total = 0;
+    document.querySelectorAll('.purchaseRateDraftInput').forEach(function(inp){
+      var v = Number(inp.value);
+      if(v > 0) total += v;
+    });
+    var totalEl = document.getElementById('purchaseBuyTotalDisplay');
+    if(totalEl) totalEl.textContent = '\u20b9' + total.toLocaleString('en-IN');
+  }
+
+  function openPurchaseBuyModal(){
+    var ids = Object.keys(state.purchaseSelection).filter(function(k){ return state.purchaseSelection[k]; }).map(Number);
+    if(ids.length === 0) return;
+    var rows = [];
+    state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(ids.indexOf(it.id) !== -1){ rows.push({ order: o, item: it }); } }); });
+
+    var total = 0;
+    rows.forEach(function(r){ var v = Number(state.purchaseRateDrafts[r.item.id]); if(v > 0) total += v; });
+
+    var html = '<div class="modal-overlay" style="align-items:flex-end;"><div class="modal-box" style="max-width:480px;width:100%;max-height:88vh;overflow-y:auto;text-align:left;border-radius:20px 20px 0 0;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0 0 10px;">Mark ' + rows.length + ' piece' + (rows.length!==1?'s':'') + ' purchased</p>';
+
+    html += '<div style="background:#202124;border:1px solid #3c4043;border-radius:10px;padding:10px;margin-bottom:12px;">';
+    html += '<label style="margin-bottom:6px;">Same price for several? Tick them, type once, apply</label>';
+    html += '<div style="display:flex;gap:8px;"><input type="number" min="0" id="purchaseBatchAmountInput" placeholder="\u20b9 amount" value="' + esc(state.purchaseBatchAmount||'') + '" style="flex:1;"><button class="btn-secondary" id="purchaseBatchApplyBtn" style="width:auto;padding:10px 14px;">Apply to ticked</button></div>';
+    html += '</div>';
+
+    rows.forEach(function(r){
+      var it = r.item, o = r.order;
+      var batchChecked = state.purchaseBatchChk[it.id] !== false;
+      var draft = state.purchaseRateDrafts[it.id] || '';
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #3c4043;">';
+      html += '<input type="checkbox" class="purchaseBatchChk custom-chk" data-item="' + it.id + '" ' + (batchChecked?'checked':'') + ' style="width:22px;height:22px;flex-shrink:0;">';
+      html += '<img src="' + (it.thumb_url||it.photo_url) + '" style="width:40px;height:50px;object-fit:cover;border-radius:6px;flex-shrink:0;">';
+      html += '<span style="font-size:12.5px;color:#9aa0a6;flex:1;">#' + esc(o.id) + (it.size?' \u00b7 '+esc(it.size):'') + '</span>';
+      html += '<input type="number" min="0" inputmode="decimal" class="purchaseRateDraftInput" data-item="' + it.id + '" placeholder="\u20b9" style="width:90px;flex-shrink:0;" value="' + esc(draft) + '">';
+      html += '</div>';
     });
 
+    html += '<div id="purchaseBuyTotalDisplay" style="text-align:right;font-size:16px;font-weight:800;color:#f2a76a;margin:12px 0;">\u20b9' + total.toLocaleString('en-IN') + '</div>';
+
+    html += '<label>Payment method</label>';
+    html += '<select id="purchaseMethodSelect" style="margin-bottom:10px;">';
+    html += '<option value="">Choose method</option><option value="cash">Cash</option><option value="gpay">GPay</option><option value="challan">Challan</option><option value="message">Message</option>';
+    html += '</select>';
+
+    var method = state.purchasePendingMethod || '';
+    if(method === 'challan'){
+      var chUrl = state.shopChallanPhotos[state.purchaseShopView];
+      if(chUrl){ html += '<div class="field-hint">Challan reference for this shop:</div><img src="' + chUrl + '" style="width:100%;max-height:180px;object-fit:contain;border-radius:10px;border:1px solid #3c4043;margin:6px 0;">'; }
+      html += '<div class="field-hint">Add a photo of today\u2019s challan slip:</div>';
+      html += '<button class="btn-secondary" id="purchaseScreenshotBtn" style="width:100%;margin:8px 0 10px;">\ud83d\udcf7 ' + (state.purchaseScreenshotPreview?'Retake challan photo':'Add challan photo') + '</button>';
+      html += '<input type="file" id="purchaseScreenshotInput" accept="image/*" style="display:none;">';
+      if(state.purchaseScreenshotPreview){ html += '<img src="' + state.purchaseScreenshotPreview + '" style="width:100%;max-height:150px;object-fit:contain;border-radius:10px;border:1px solid #3c4043;margin-bottom:10px;">'; }
+    }
+    if(method === 'message'){
+      html += '<div class="field-hint">Add a screenshot of the payment message:</div>';
+      html += '<button class="btn-secondary" id="purchaseScreenshotBtn" style="width:100%;margin:8px 0 10px;">\ud83d\udcf7 ' + (state.purchaseScreenshotPreview?'Retake screenshot':'Add message screenshot') + '</button>';
+      html += '<input type="file" id="purchaseScreenshotInput" accept="image/*" style="display:none;">';
+      if(state.purchaseScreenshotPreview){ html += '<img src="' + state.purchaseScreenshotPreview + '" style="width:100%;max-height:150px;object-fit:contain;border-radius:10px;border:1px solid #3c4043;margin-bottom:10px;">'; }
+    }
+
+    html += '<button class="btn-secondary" id="purchasePhotoBtn" style="width:100%;margin-bottom:10px;">\ud83d\udcf8 ' + (state.purchasePhotoPreview ? 'Retake purchase photo' : 'Take purchase-time photo') + '</button>';
+    html += '<input type="file" id="purchasePhotoInput" accept="image/*" capture="environment" style="display:none;">';
+    if(state.purchasePhotoPreview){ html += '<img src="' + state.purchasePhotoPreview + '" style="width:100%;max-height:150px;object-fit:contain;border-radius:10px;border:1px solid #3c4043;margin-bottom:10px;">'; }
+
+    if(state.purchaseActionError){ html += '<div class="error-text">' + esc(state.purchaseActionError) + '</div>'; }
+    html += '<div class="modal-actions"><button id="purchaseBuyCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button><button class="btn-primary" id="purchaseConfirmBuyBtn" ' + (state.purchaseSaving?'disabled':'') + ' style="flex:1;">' + (state.purchaseSaving?'Saving...':'Confirm purchase') + '</button></div>';
+    html += '</div></div>';
+
+    document.getElementById('modalHost').innerHTML = html;
+    wirePurchaseBuyModal(ids);
+  }
+
+  function wirePurchaseBuyModal(ids){
+    document.getElementById('purchaseBuyCancelBtn').addEventListener('click', closeModal);
+    document.querySelectorAll('.purchaseBatchChk').forEach(function(chk){
+      chk.addEventListener('change', function(){
+        state.purchaseBatchChk[parseInt(chk.getAttribute('data-item'),10)] = chk.checked;
+      });
+    });
+    document.querySelectorAll('.purchaseRateDraftInput').forEach(function(inp){
+      inp.addEventListener('input', function(){
+        state.purchaseRateDrafts[parseInt(inp.getAttribute('data-item'),10)] = inp.value;
+        updateBuyModalTotal();
+      });
+    });
+    var batchAmtInp = document.getElementById('purchaseBatchAmountInput');
+    if(batchAmtInp) batchAmtInp.addEventListener('input', function(){ state.purchaseBatchAmount = batchAmtInp.value; });
+    var batchApplyBtn = document.getElementById('purchaseBatchApplyBtn');
+    if(batchApplyBtn) batchApplyBtn.addEventListener('click', function(){
+      var amt = (document.getElementById('purchaseBatchAmountInput').value || '').trim();
+      if(!amt || isNaN(Number(amt)) || Number(amt) <= 0){ showToast('Enter a valid amount first'); return; }
+      ids.forEach(function(id){
+        if(state.purchaseBatchChk[id] !== false){
+          state.purchaseRateDrafts[id] = amt;
+          state.purchaseBatchChk[id] = false;
+        }
+      });
+      state.purchaseBatchAmount = '';
+      openPurchaseBuyModal();
+    });
     var methodSel = document.getElementById('purchaseMethodSelect');
     if(methodSel){
       methodSel.value = state.purchasePendingMethod || '';
-      methodSel.addEventListener('change', function(){ state.purchasePendingMethod = methodSel.value; render(); });
+      methodSel.addEventListener('change', function(){ state.purchasePendingMethod = methodSel.value; openPurchaseBuyModal(); });
     }
-
     var photoBtn = document.getElementById('purchasePhotoBtn');
     var photoInput = document.getElementById('purchasePhotoInput');
     if(photoBtn && photoInput){
@@ -4259,7 +4389,7 @@
           var blob = await resizeImageToBlob(f, 1000);
           state.purchasePhotoBlob = blob;
           state.purchasePhotoPreview = URL.createObjectURL(blob);
-          render();
+          openPurchaseBuyModal();
         }catch(err){ showToast('Could not process photo'); }
       });
     }
@@ -4274,46 +4404,168 @@
           var blob = await resizeImageToBlob(f, 1000);
           state.purchaseScreenshotBlob = blob;
           state.purchaseScreenshotPreview = URL.createObjectURL(blob);
-          render();
-        }catch(err){ showToast('Could not process screenshot'); }
+          openPurchaseBuyModal();
+        }catch(err){ showToast('Could not process photo'); }
       });
     }
-
-    var confirmBuyBtn = document.getElementById('purchaseConfirmBuyBtn');
-    if(confirmBuyBtn) confirmBuyBtn.addEventListener('click', async function(){
-      var ids = Object.keys(state.purchaseSelection).filter(function(k){ return state.purchaseSelection[k]; }).map(Number);
+    var confirmBtn = document.getElementById('purchaseConfirmBuyBtn');
+    if(confirmBtn) confirmBtn.addEventListener('click', async function(){
       var rates = [];
       var bad = false;
       ids.forEach(function(id){
-        var inp = document.querySelector('.purchaseRateInput[data-item="' + id + '"]');
-        var val = Number(inp ? inp.value.trim() : '');
+        var val = Number(state.purchaseRateDrafts[id]);
         if(!val || isNaN(val) || val <= 0){ bad = true; }
         rates.push({ id: id, rate: val });
       });
       var method = state.purchasePendingMethod;
-      if(bad){ state.purchaseActionError = 'Enter a rate for every piece'; render(); return; }
-      if(!method){ state.purchaseActionError = 'Select a payment method'; render(); return; }
-      if(!state.purchasePhotoBlob){ state.purchaseActionError = 'Take a purchase-time photo of the pieces'; render(); return; }
-      if(method === 'message' && !state.purchaseScreenshotBlob){ state.purchaseActionError = 'Add the message screenshot'; render(); return; }
+      if(bad){ state.purchaseActionError = 'Enter a rate for every piece'; openPurchaseBuyModal(); return; }
+      if(!method){ state.purchaseActionError = 'Select a payment method'; openPurchaseBuyModal(); return; }
+      if(!state.purchasePhotoBlob){ state.purchaseActionError = 'Take a purchase-time photo of the pieces'; openPurchaseBuyModal(); return; }
+      if((method === 'message' || method === 'challan') && !state.purchaseScreenshotBlob){
+        state.purchaseActionError = method === 'message' ? 'Add the message screenshot' : 'Add a photo of the challan';
+        openPurchaseBuyModal(); return;
+      }
       state.purchaseActionError = '';
       state.purchaseSaving = true;
-      render();
+      openPurchaseBuyModal();
+      var beforeRows = [];
+      state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(ids.indexOf(it.id) !== -1){ beforeRows.push({ id: it.id, photo: it.thumb_url||it.photo_url, orderId: o.id, size: it.size }); } }); });
       try{
         var photoUrl = await uploadPurchaseProof(state.purchasePhotoBlob, 'purchase');
         var screenshotUrl = null;
-        if(method === 'message' && state.purchaseScreenshotBlob){
-          screenshotUrl = await uploadPurchaseProof(state.purchaseScreenshotBlob, 'message');
+        if((method === 'message' || method === 'challan') && state.purchaseScreenshotBlob){
+          screenshotUrl = await uploadPurchaseProof(state.purchaseScreenshotBlob, method);
         }
-        await purchaseSelectedItems(rates, method, photoUrl, screenshotUrl);
-        state.purchasePendingMethod = '';
-        state.purchasePhotoBlob = null; state.purchasePhotoPreview = null;
-        state.purchaseScreenshotBlob = null; state.purchaseScreenshotPreview = null;
-        state.purchaseActionPanel = null;
+        var ok = await purchaseSelectedItems(rates, method, photoUrl, screenshotUrl);
+        state.purchaseSaving = false;
+        if(ok){
+          var total = rates.reduce(function(s,r){ return s + r.rate; }, 0);
+          state.purchasePendingMethod = '';
+          state.purchasePhotoBlob = null; state.purchasePhotoPreview = null;
+          state.purchaseScreenshotBlob = null; state.purchaseScreenshotPreview = null;
+          state.purchaseRateDrafts = {}; state.purchaseBatchChk = {};
+          openPurchaseConfirmedModal(beforeRows, rates, total, method);
+        }else{
+          openPurchaseBuyModal();
+        }
       }catch(err){
+        state.purchaseSaving = false;
         state.purchaseActionError = 'Could not save: ' + (err && err.message ? err.message : 'try again');
+        openPurchaseBuyModal();
       }
-      state.purchaseSaving = false;
+    });
+  }
+
+  function openPurchaseConfirmedModal(beforeRows, rates, total, method){
+    var rateById = {};
+    rates.forEach(function(r){ rateById[r.id] = r.rate; });
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:400px;text-align:left;max-height:80vh;overflow-y:auto;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0 0 4px;">\u2705 Purchase confirmed</p>';
+    html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 14px;">' + beforeRows.length + ' piece' + (beforeRows.length!==1?'s':'') + ' \u00b7 ' + esc(method.toUpperCase()) + '</p>';
+    beforeRows.forEach(function(r){
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #3c4043;">';
+      html += '<img src="' + r.photo + '" style="width:40px;height:50px;object-fit:cover;border-radius:6px;">';
+      html += '<span style="font-size:12.5px;color:#e8eaed;flex:1;">#' + esc(r.orderId) + (r.size?' \u00b7 '+esc(r.size):'') + '</span>';
+      html += '<span style="font-size:13px;color:#7fd99a;font-weight:700;">\u20b9' + esc(String(rateById[r.id])) + '</span>';
+      html += '</div>';
+    });
+    html += '<div style="text-align:right;font-size:16px;font-weight:800;color:#f2a76a;margin:12px 0 4px;">Total: \u20b9' + total.toLocaleString('en-IN') + '</div>';
+    html += '<div class="modal-actions"><button id="purchaseConfirmedCloseBtn" style="background:#d97a3f;color:#fff;border:none;flex:1;">Done</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    document.getElementById('purchaseConfirmedCloseBtn').addEventListener('click', closeModal);
+  }
+
+  // ===== PURCHASE: restock-date bottom sheet (supports different dates per subset) =====
+
+  function openPurchaseRestockModal(){
+    var ids = Object.keys(state.purchaseSelection).filter(function(k){ return state.purchaseSelection[k]; }).map(Number);
+    if(ids.length === 0) return;
+    var rows = [];
+    state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(ids.indexOf(it.id) !== -1){ rows.push({ order: o, item: it }); } }); });
+
+    var html = '<div class="modal-overlay" style="align-items:flex-end;"><div class="modal-box" style="max-width:480px;width:100%;max-height:88vh;overflow-y:auto;text-align:left;border-radius:20px 20px 0 0;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0 0 4px;">Set restock date \u2014 ' + rows.length + ' piece' + (rows.length!==1?'s':'') + '</p>';
+    html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 12px;">Tick which ones share the same date, then tap that date. Repeat for the rest.</p>';
+
+    rows.forEach(function(r){
+      var it = r.item, o = r.order;
+      var batchChecked = state.purchaseBatchChk[it.id] !== false;
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #3c4043;">';
+      html += '<input type="checkbox" class="purchaseDateBatchChk custom-chk" data-item="' + it.id + '" ' + (batchChecked?'checked':'') + ' style="width:22px;height:22px;flex-shrink:0;">';
+      html += '<img src="' + (it.thumb_url||it.photo_url) + '" style="width:40px;height:50px;object-fit:cover;border-radius:6px;flex-shrink:0;">';
+      html += '<span style="font-size:12.5px;color:#e8eaed;flex:1;">#' + esc(o.id) + (it.size?' \u00b7 '+esc(it.size):'') + '</span>';
+      if(it.restock_date){ html += '<span style="font-size:11.5px;color:#f2a76a;font-weight:700;">' + esc(formatRestockDate(it.restock_date)) + '</span>'; }
+      html += '</div>';
+    });
+
+    html += '<label style="margin-top:12px;">Tap a date to apply to ticked pieces</label>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">';
+    getRestockDateSuggestions().forEach(function(d){
+      html += '<div class="filter-chip purchaseRestockChip" data-iso="' + d.iso + '" style="cursor:pointer;">' + d.label + '</div>';
+    });
+    html += '</div>';
+
+    html += '<div class="modal-actions"><button id="purchaseRestockDoneBtn" style="background:#d97a3f;color:#fff;border:none;flex:1;">Done</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    wirePurchaseRestockModal(ids);
+  }
+
+  function wirePurchaseRestockModal(ids){
+    document.querySelectorAll('.purchaseDateBatchChk').forEach(function(chk){
+      chk.addEventListener('change', function(){
+        state.purchaseBatchChk[parseInt(chk.getAttribute('data-item'),10)] = chk.checked;
+      });
+    });
+    document.querySelectorAll('.purchaseRestockChip').forEach(function(chip){
+      chip.addEventListener('click', function(){
+        var iso = chip.getAttribute('data-iso');
+        var applyIds = ids.filter(function(id){ return state.purchaseBatchChk[id] !== false; });
+        if(applyIds.length === 0){ showToast('Tick at least one piece first'); return; }
+        restockSelectedItems(applyIds, iso).then(function(){
+          applyIds.forEach(function(id){ state.purchaseBatchChk[id] = false; });
+          openPurchaseRestockModal();
+        });
+      });
+    });
+    document.getElementById('purchaseRestockDoneBtn').addEventListener('click', function(){
+      state.purchaseSelection = {};
+      state.purchaseBatchChk = {};
+      closeModal();
       render();
+    });
+  }
+
+  // ===== PURCHASE: recent purchases at this shop, for price cross-checking =====
+
+  function openRecentShopPurchasesModal(shopName){
+    var rows = [];
+    state.orders.forEach(function(o){
+      (o.items||[]).forEach(function(it){
+        if(it.purchased && (it.shop_name||'') === shopName){ rows.push({ item: it, order: o }); }
+      });
+    });
+    rows.sort(function(a,b){ return new Date(b.item.purchased_at||0) - new Date(a.item.purchased_at||0); });
+    rows = rows.slice(0, 20);
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:400px;text-align:left;max-height:80vh;overflow-y:auto;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0 0 4px;">Recent purchases \u2014 ' + esc(shopName) + '</p>';
+    html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 14px;">Check today\u2019s price against what you paid before here.</p>';
+    if(rows.length === 0){ html += '<div class="empty-state">Nothing purchased here yet.</div>'; }
+    rows.forEach(function(r){
+      var it = r.item, o = r.order;
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #3c4043;">';
+      html += '<img class="recentPurchThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url||it.photo_url) + '" style="width:44px;height:56px;object-fit:cover;border-radius:6px;cursor:zoom-in;">';
+      html += '<div style="flex:1;min-width:0;"><div style="font-size:12.5px;color:#e8eaed;">#' + esc(o.id) + (it.size?' \u00b7 '+esc(it.size):'') + '</div><div style="font-size:11px;color:#9aa0a6;">' + esc(formatTime(it.purchased_at)) + '</div></div>';
+      html += '<span style="font-size:14px;color:#7fd99a;font-weight:700;">\u20b9' + esc(String(it.purchase_rate)) + '</span>';
+      html += '</div>';
+    });
+    html += '<div class="modal-actions"><button id="recentPurchCloseBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Close</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    document.getElementById('recentPurchCloseBtn').addEventListener('click', closeModal);
+    document.querySelectorAll('.recentPurchThumb').forEach(function(img){
+      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
     });
   }
 
