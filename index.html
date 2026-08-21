@@ -496,6 +496,7 @@
     resellerNotifications: [],
     resellerNotifDropdownOpen: false,
     editingListItem: null,
+    manageListsSearch: '',
     editingListItemVal: '',
     pendingCreateLoginFor: null,
     createLoginEmailVal: '',
@@ -1746,6 +1747,32 @@
     return data;
   }
 
+  function openShareLoginWhatsappModal(resellerName, email){
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:340px;text-align:left;">';
+    html += '<p style="font-size:14px;font-weight:700;margin:0 0 4px;">Share login \u2014 ' + esc(resellerName) + '</p>';
+    html += '<p style="font-size:11.5px;color:#9aa0a6;margin:0 0 12px;">The password isn\u2019t saved anywhere in the app \u2014 type it in fresh each time you share, it\u2019s only used to build this one message.</p>';
+    html += '<label>Email</label><div style="padding:9px 12px;background:#28292c;border:1px solid #3c4043;border-radius:10px;color:#e8eaed;font-size:13px;margin-bottom:10px;">' + esc(email) + '</div>';
+    html += '<label>Password</label><input type="text" id="shareLoginPasswordInput" autocomplete="off" placeholder="Type the password to include" style="margin-bottom:6px;">';
+    html += '<div class="modal-actions"><button id="shareLoginCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button><button id="shareLoginSendBtn" style="background:#25D366;color:#0b1f14;border:none;">\ud83d\udcac Share via WhatsApp</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    var pwInp = document.getElementById('shareLoginPasswordInput');
+    pwInp.focus();
+    document.getElementById('shareLoginCancelBtn').addEventListener('click', closeModal);
+    document.getElementById('shareLoginSendBtn').addEventListener('click', function(){
+      var pw = (pwInp.value || '').trim();
+      if(!pw){ showToast('Enter the password to include'); pwInp.focus(); return; }
+      var msg = 'Hi ' + resellerName + ', here are your Gurukrupa Sarees website login details:\n\n' +
+        'Website: gurukrupasarees.in\n' +
+        'Email: ' + email + '\n' +
+        'Password: ' + pw + '\n\n' +
+        'Please keep this safe.';
+      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+      closeModal();
+    });
+    pwInp.addEventListener('keydown', function(e){ if(e.key === 'Enter') document.getElementById('shareLoginSendBtn').click(); });
+  }
+
   function openCreateResellerLoginModal(resellerName){
     var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:340px;text-align:left;">';
     html += '<p style="font-size:14px;font-weight:700;margin:0 0 4px;">Create login \u2014 ' + esc(resellerName) + '</p>';
@@ -1814,30 +1841,10 @@
     inp.addEventListener('keydown', function(e){ if(e.key === 'Enter') document.getElementById('shopUpiSaveBtn').click(); });
   }
 
-  function renderManageListsModal(){
-    var tab = state.manageListsTab || 'resellers';
-    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers', sizes: 'sizes' };
-    var listMap = { resellers: state.resellers, shops: state.shops, couriers: state.couriers || [], sizes: state.sizes || [] };
-    var labelMap = { resellers: 'Reseller', shops: 'Shop', couriers: 'Courier', sizes: 'Size' };
-
-    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:400px;text-align:left;">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">';
-    html += '<p style="font-size:15px;font-weight:700;margin:0;">Manage Lists</p>';
-    html += '<button id="manageListsCloseBtn" style="background:none;border:none;color:#9aa0a6;font-size:20px;cursor:pointer;">\u00d7</button></div>';
-    html += '<div class="filters">';
-    ['resellers','shops','couriers','sizes'].forEach(function(t){
-      html += '<div class="filter-chip' + (tab===t?' active':'') + '" data-mtab="' + t + '">' + labelMap[t] + 's</div>';
-    });
-    html += '</div>';
-    html += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
-    var datalistMap = { resellers: 'resellerList', shops: 'shopList', couriers: 'courierList', sizes: 'sizeList' };
-    html += '<input type="text" id="newListItemInput" list="' + datalistMap[tab] + '" autocomplete="off" placeholder="Add new ' + labelMap[tab].toLowerCase() + '" style="flex:1;">';
-    html += '<button class="btn-secondary" id="addListItemBtn">Add</button></div>';
-    html += '<div id="dupCheckMsg" style="font-size:12px;margin:-6px 0 10px;min-height:16px;"></div>';
-    html += '<div style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">';
-    var list = listMap[tab];
+  function renderManageListRows(tab, list, query){
+    var html = '';
     if(list.length === 0){
-      html += '<p style="font-size:12.5px;color:#80868b;">None added yet.</p>';
+      html += '<p style="font-size:12.5px;color:#80868b;">' + (query ? 'No matches for \u201c' + esc(query) + '\u201d.' : 'None added yet.') + '</p>';
     }
     list.forEach(function(name){
       var editing = state.editingListItem && state.editingListItem.tab === tab && state.editingListItem.name === name;
@@ -1857,7 +1864,9 @@
           html += '<button class="shop-challan-btn" data-shop="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;font-size:11px;padding:3px 7px;">' + (state.shopChallanPhotos[name] ? '\ud83d\udcc4 Change' : '\ud83d\udcc4 Add challan pic') + '</button>';
           html += '<button class="shop-upi-btn" data-shop="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;font-size:11px;padding:3px 7px;">' + (state.shopUpiVpas[name] ? '\ud83d\udcf1 Change UPI' : '\ud83d\udcf1 Add UPI ID') + '</button>';
         }
-        html += '<button class="del-list-item-btn" data-name="' + esc(name) + '" style="background:none;border:none;color:#f28b82;cursor:pointer;font-size:16px;">\u00d7</button>';
+        if(isSuperAdmin()){
+          html += '<button class="del-list-item-btn" data-tab="' + tab + '" data-name="' + esc(name) + '" style="background:none;border:none;color:#f28b82;cursor:pointer;font-size:16px;">\u00d7</button>';
+        }
         html += '</div></div>';
       }
       if(tab === 'shops' && state.shopChallanPhotos[name]){
@@ -1871,19 +1880,22 @@
         html += '<div style="font-size:11px;color:#9aa0a6;">' + activity.count + ' order' + (activity.count!==1?'s':'') + (activity.lastDate ? ' \u00b7 last ' + formatTime(activity.lastDate) : '') + '</div>';
         var login = state.resellerLogins[name];
         if(login){
-          html += '<div style="font-size:11.5px;color:#7fd99a;">\ud83d\udd11 ' + esc(login.email) + '</div>';
+          html += '<div style="display:flex;align-items:center;gap:8px;">';
+          html += '<div style="font-size:11.5px;color:#7fd99a;flex:1;">\ud83d\udd11 ' + esc(login.email) + '</div>';
+          if(isSuperAdmin()){
+            html += '<button class="share-login-whatsapp-btn" data-reseller="' + esc(name) + '" data-email="' + esc(login.email) + '" aria-label="Share login via WhatsApp" style="background:none;border:1px solid #3c4043;border-radius:6px;cursor:pointer;padding:4px 7px;line-height:1;display:flex;align-items:center;"><svg viewBox="0 0 24 24" width="15" height="15" fill="#25D366"><path d="M17.5 14.4c-.3-.1-1.7-.9-2-1-.3-.1-.5-.1-.6.1-.2.3-.7 1-.9 1.2-.2.2-.3.2-.6.1-.3-.2-1.2-.5-2.3-1.5-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6.1-.1.3-.3.4-.5.1-.1.2-.3.3-.4.1-.2 0-.4 0-.5-.1-.1-.6-1.5-.8-2-.2-.5-.4-.5-.6-.5h-.5c-.2 0-.5.1-.7.3-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2 3 4.8 4.3.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.5-.1 1.7-.7 2-1.4.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.6-.3z"></path><path d="M12 2C6.5 2 2 6.5 2 12c0 1.9.5 3.6 1.4 5.1L2 22l5.1-1.3C8.5 21.5 10.2 22 12 22c5.5 0 10-4.5 10-10S17.5 2 12 2zm0 18.2c-1.7 0-3.3-.5-4.6-1.3l-.3-.2-3 .8.8-2.9-.2-.3C3.8 15 3.3 13.5 3.3 12c0-4.8 3.9-8.7 8.7-8.7s8.7 3.9 8.7 8.7-3.9 8.7-8.7 8.7z"></path></svg></button>';
+          }
+          html += '</div>';
         }else{
           html += '<button class="create-login-btn" data-reseller="' + esc(name) + '" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#f2a76a;cursor:pointer;font-size:11px;padding:4px 8px;align-self:flex-start;">\ud83d\udd11 Create login</button>';
         }
       }
       html += '</div>';
     });
-    html += '</div></div></div>';
-    html += '<input type="file" id="shopChallanFileInput" accept="image/*" style="display:none;">';
+    return html;
+  }
 
-    document.getElementById('modalHost').innerHTML = html;
-
-    document.getElementById('manageListsCloseBtn').addEventListener('click', closeModal);
+  function wireManageListRows(){
     document.querySelectorAll('.shop-challan-btn').forEach(function(btn){
       btn.addEventListener('click', function(){
         state.pendingChallanShop = btn.getAttribute('data-shop');
@@ -1921,6 +1933,78 @@
     document.querySelectorAll('.create-login-btn').forEach(function(btn){
       btn.addEventListener('click', function(){ openCreateResellerLoginModal(btn.getAttribute('data-reseller')); });
     });
+    document.querySelectorAll('.share-login-whatsapp-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        openShareLoginWhatsappModal(btn.getAttribute('data-reseller'), btn.getAttribute('data-email'));
+      });
+    });
+    document.querySelectorAll('.del-list-item-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        openDeleteListItemConfirm(btn.getAttribute('data-tab'), btn.getAttribute('data-name'));
+      });
+    });
+  }
+
+  function refreshManageListRows(){
+    var tab = state.manageListsTab || 'resellers';
+    var listMap = { resellers: state.resellers, shops: state.shops, couriers: state.couriers || [], sizes: state.sizes || [] };
+    var query = (state.manageListsSearch || '').trim().toLowerCase();
+    var list = listMap[tab].filter(function(n){ return !query || n.toLowerCase().indexOf(query) !== -1; });
+    var wrap = document.getElementById('manageListsRowsWrap');
+    if(wrap){
+      wrap.innerHTML = renderManageListRows(tab, list, state.manageListsSearch);
+      wireManageListRows();
+    }
+  }
+
+  // Deleting a list entry is destructive to anything still referencing it by
+  // name, so it's restricted to the real admin and requires an explicit
+  // confirmation step — never a bare click-and-gone.
+  function openDeleteListItemConfirm(tab, name){
+    var labelMap = { resellers: 'reseller', shops: 'shop', couriers: 'courier', sizes: 'size' };
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:320px;text-align:left;">';
+    html += '<p style="font-size:14px;font-weight:700;margin:0 0 8px;">Delete this ' + esc(labelMap[tab] || 'entry') + '?</p>';
+    html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">\u201c' + esc(name) + '\u201d will no longer appear in lists or search. Past orders that already used it are not affected.</p>';
+    html += '<div class="modal-actions"><button id="delListCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button><button id="delListConfirmBtn" style="background:#d43b3b;color:#fff;border:none;">Delete</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    document.getElementById('delListCancelBtn').addEventListener('click', function(){ renderManageListsModal(); });
+    document.getElementById('delListConfirmBtn').addEventListener('click', function(){
+      deleteListItem(name);
+    });
+  }
+
+  function renderManageListsModal(){
+    var tab = state.manageListsTab || 'resellers';
+    var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers', sizes: 'sizes' };
+    var listMap = { resellers: state.resellers, shops: state.shops, couriers: state.couriers || [], sizes: state.sizes || [] };
+    var labelMap = { resellers: 'Reseller', shops: 'Shop', couriers: 'Courier', sizes: 'Size' };
+
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:400px;text-align:left;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0;">Manage Lists</p>';
+    html += '<button id="manageListsCloseBtn" style="background:none;border:none;color:#9aa0a6;font-size:20px;cursor:pointer;">\u00d7</button></div>';
+    html += '<div class="filters">';
+    ['resellers','shops','couriers','sizes'].forEach(function(t){
+      html += '<div class="filter-chip' + (tab===t?' active':'') + '" data-mtab="' + t + '">' + labelMap[t] + 's</div>';
+    });
+    html += '</div>';
+    html += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
+    var datalistMap = { resellers: 'resellerList', shops: 'shopList', couriers: 'courierList', sizes: 'sizeList' };
+    html += '<input type="text" id="newListItemInput" list="' + datalistMap[tab] + '" autocomplete="off" placeholder="Search or add new ' + labelMap[tab].toLowerCase() + '" value="' + esc(state.manageListsSearch||'') + '" style="flex:1;">';
+    html += '<button class="btn-secondary" id="addListItemBtn">Add</button></div>';
+    html += '<div id="dupCheckMsg" style="font-size:12px;margin:-6px 0 10px;min-height:16px;"></div>';
+    html += '<div style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;" id="manageListsRowsWrap">';
+    var query = (state.manageListsSearch || '').trim().toLowerCase();
+    var list = listMap[tab].filter(function(n){ return !query || n.toLowerCase().indexOf(query) !== -1; });
+    html += renderManageListRows(tab, list, state.manageListsSearch);
+    html += '</div></div></div>';
+    html += '<input type="file" id="shopChallanFileInput" accept="image/*" style="display:none;">';
+
+    document.getElementById('modalHost').innerHTML = html;
+
+    document.getElementById('manageListsCloseBtn').addEventListener('click', closeModal);
+    wireManageListRows();
     document.getElementById('shopChallanFileInput').addEventListener('change', async function(e){
       var f = e.target.files && e.target.files[0];
       var shop = state.pendingChallanShop;
@@ -1943,6 +2027,7 @@
     document.querySelectorAll('[data-mtab]').forEach(function(chip){
       chip.addEventListener('click', function(){
         state.manageListsTab = chip.getAttribute('data-mtab');
+        state.manageListsSearch = '';
         renderManageListsModal();
       });
     });
@@ -1951,11 +2036,17 @@
       if(e.key === 'Enter') addListItem();
     });
     document.getElementById('newListItemInput').addEventListener('input', function(){
+      state.manageListsSearch = this.value;
       var val = (this.value || '').trim().toLowerCase();
       var msgEl = document.getElementById('dupCheckMsg');
       var addBtn = document.getElementById('addListItemBtn');
-      if(!val){ msgEl.textContent = ''; addBtn.disabled = false; return; }
-      var dup = list.find(function(s){ return s.trim().toLowerCase() === val; });
+      var fullList = listMap[tab];
+      if(!val){
+        msgEl.textContent = ''; addBtn.disabled = false;
+        refreshManageListRows();
+        return;
+      }
+      var dup = fullList.find(function(s){ return s.trim().toLowerCase() === val; });
       if(dup){
         msgEl.textContent = '\u26a0\ufe0f Already in your list as "' + dup + '"';
         msgEl.style.color = '#fdd663';
@@ -1964,11 +2055,7 @@
         msgEl.textContent = '';
         addBtn.disabled = false;
       }
-    });
-    document.querySelectorAll('.del-list-item-btn').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        deleteListItem(btn.getAttribute('data-name'));
-      });
+      refreshManageListRows();
     });
   }
 
@@ -1987,12 +2074,14 @@
     else if(tab === 'shops'){ state.shops = Array.from(new Set(state.shops.concat([name]))).sort(); }
     else if(tab === 'sizes'){ state.sizes = Array.from(new Set((state.sizes||[]).concat([name]))).sort(); }
     else{ state.couriers = Array.from(new Set((state.couriers||[]).concat([name]))).sort(); }
+    state.manageListsSearch = '';
     renderManageListsModal();
     var refreshedInput = document.getElementById('newListItemInput');
     if(refreshedInput) refreshedInput.focus();
   }
 
   async function deleteListItem(name){
+    if(!isSuperAdmin()){ showToast('Only the admin account can delete entries'); return; }
     var tab = state.manageListsTab || 'resellers';
     var tableMap = { resellers: 'resellers', shops: 'shops', couriers: 'couriers', sizes: 'sizes' };
     var { error } = await sb.from(tableMap[tab]).upsert({ name: name, hidden: true }, { onConflict: 'name' });
@@ -2001,6 +2090,7 @@
     else if(tab === 'shops'){ state.shops = state.shops.filter(function(n){ return n !== name; }); }
     else if(tab === 'sizes'){ state.sizes = (state.sizes||[]).filter(function(n){ return n !== name; }); }
     else{ state.couriers = (state.couriers||[]).filter(function(n){ return n !== name; }); }
+    showToast('\u201c' + name + '\u201d deleted');
     renderManageListsModal();
   }
 
@@ -2171,8 +2261,10 @@
 
     html += '<div style="margin-bottom:22px;">';
     html += '<label>Scan parcel photos (slip + tracking sticker)</label>';
-    html += '<button class="btn-add-photo" id="scanParcelBtn" style="margin-bottom:0;" ' + (state.trackingOcrProcessing?'disabled':'') + '>' + (state.trackingOcrProcessing ? '<span class="spinner-sm"></span>Reading photos\u2026' : '+ Upload parcel photos') + '</button>';
-    html += '<input type="file" id="parcelFileInput" accept="image/*" multiple style="display:none;">';
+    html += '<button class="btn-add-photo" id="scanParcelBtn" style="margin-bottom:8px;" ' + (state.trackingOcrProcessing?'disabled':'') + '>' + (state.trackingOcrProcessing ? '<span class="spinner-sm"></span>Reading photos\u2026' : '\ud83d\udcf7 Take photo') + '</button>';
+    html += '<button class="btn-secondary" id="scanParcelGalleryBtn" style="width:100%;margin-bottom:0;" ' + (state.trackingOcrProcessing?'disabled':'') + '>Choose several from gallery instead</button>';
+    html += '<input type="file" id="parcelFileInput" accept="image/*" capture="environment" style="display:none;">';
+    html += '<input type="file" id="parcelGalleryInput" accept="image/*" multiple style="display:none;">';
     html += '<div class="field-hint">Take one clear photo of the packed parcel showing the <b>printed order ID slip</b> and the <b>courier tracking sticker</b>. Order, tracking number &amp; courier are read automatically \u2014 works on iPhone (Safari) and Android (Chrome). First scan takes a little longer while the reader downloads.</div>';
     html += '</div>';
 
@@ -2428,6 +2520,14 @@
       document.getElementById('parcelFileInput').click();
     });
     document.getElementById('parcelFileInput').addEventListener('change', function(e){
+      var files = Array.prototype.slice.call(e.target.files || []);
+      if(files.length === 0) return;
+      scanParcelPhotos(files);
+    });
+    document.getElementById('scanParcelGalleryBtn').addEventListener('click', function(){
+      document.getElementById('parcelGalleryInput').click();
+    });
+    document.getElementById('parcelGalleryInput').addEventListener('change', function(e){
       var files = Array.prototype.slice.call(e.target.files || []);
       if(files.length === 0) return;
       scanParcelPhotos(files);
