@@ -2271,7 +2271,8 @@
 
     html += '<div style="margin-bottom:22px;">';
     html += '<label>Scan parcel photos (slip + tracking sticker)</label>';
-    html += '<button class="btn-add-photo" id="scanParcelBtn" style="margin-bottom:8px;" ' + (state.trackingOcrProcessing?'disabled':'') + '>' + (state.trackingOcrProcessing ? '<span class="spinner-sm"></span>Reading photos\u2026' : '\ud83d\udcf7 Take photo') + '</button>';
+    html += '<button class="btn-add-photo" id="livePackCameraBtn" style="margin-bottom:8px;" ' + (state.trackingOcrProcessing?'disabled':'') + '>\ud83d\udcf7 Pack & scan multiple (camera stays open)</button>';
+    html += '<button class="btn-secondary" id="scanParcelBtn" style="width:100%;margin-bottom:8px;" ' + (state.trackingOcrProcessing?'disabled':'') + '>' + (state.trackingOcrProcessing ? '<span class="spinner-sm"></span>Reading photos\u2026' : 'Take one photo') + '</button>';
     html += '<button class="btn-secondary" id="scanParcelGalleryBtn" style="width:100%;margin-bottom:0;" ' + (state.trackingOcrProcessing?'disabled':'') + '>Choose several from gallery instead</button>';
     html += '<input type="file" id="parcelFileInput" accept="image/*" capture="environment" style="display:none;">';
     html += '<input type="file" id="parcelGalleryInput" accept="image/*" multiple style="display:none;">';
@@ -2533,6 +2534,8 @@
         if(refocused){ refocused.focus(); refocused.setSelectionRange(refocused.value.length, refocused.value.length); }
       });
     }
+    var liveCamBtn = document.getElementById('livePackCameraBtn');
+    if(liveCamBtn) liveCamBtn.addEventListener('click', openLiveParcelCamera);
     document.getElementById('scanParcelBtn').addEventListener('click', function(){
       document.getElementById('parcelFileInput').click();
     });
@@ -2658,6 +2661,88 @@
     document.querySelectorAll('.reseller-share-btn').forEach(function(btn){
       btn.addEventListener('click', function(){ shareTrackingToWhatsApp(btn.getAttribute('data-reseller'), btn); });
     });
+  }
+
+  // ===== LIVE MULTI-SHOT CAMERA (Tracking tab) =====
+  // Opens the camera once and keeps it running while packing several
+  // parcels in a row — tap the shutter after each one, no re-opening the
+  // picker each time. Deliberately avoids re-rendering the whole overlay on
+  // every shot (that would tear down and restart the <video> stream); only
+  // the thumbnail strip and counter update in place.
+  async function openLiveParcelCamera(){
+    var stream;
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    }catch(err){
+      showToast('Could not open the camera: ' + (err && err.message ? err.message : 'permission denied or not supported on this device') + ' \u2014 try "Take one photo" instead.');
+      return;
+    }
+    state.liveCam = { stream: stream, shots: [] };
+    var html = '<div class="modal-overlay" style="padding:0;align-items:stretch;z-index:80;"><div style="background:#000;width:100%;height:100%;display:flex;flex-direction:column;">';
+    html += '<div style="position:relative;flex:1;min-height:0;">';
+    html += '<video id="liveCamVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;background:#000;display:block;"></video>';
+    html += '<button id="liveCamCancelBtn" style="position:absolute;top:14px;left:14px;background:rgba(0,0,0,0.5);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;">\u00d7</button>';
+    html += '</div>';
+    html += '<div style="background:#131314;padding:14px;flex-shrink:0;">';
+    html += '<div id="liveCamThumbStrip" style="display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:2px;min-height:2px;"></div>';
+    html += '<p id="liveCamCount" style="text-align:center;color:#9aa0a6;font-size:12.5px;margin:0 0 12px;">Tap the shutter after each parcel is packed</p>';
+    html += '<div style="display:flex;align-items:center;justify-content:center;gap:24px;">';
+    html += '<div style="width:70px;"></div>';
+    html += '<button id="liveCamShutterBtn" style="width:64px;height:64px;border-radius:50%;background:#fff;border:4px solid #d97a3f;cursor:pointer;flex-shrink:0;"></button>';
+    html += '<button id="liveCamDoneBtn" style="width:70px;background:#d97a3f;color:#fff;border:none;border-radius:10px;padding:10px 6px;font-size:13px;font-weight:700;cursor:pointer;" disabled>Done</button>';
+    html += '</div></div></div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    var video = document.getElementById('liveCamVideo');
+    video.srcObject = stream;
+    document.getElementById('liveCamShutterBtn').addEventListener('click', captureLiveCamShot);
+    document.getElementById('liveCamCancelBtn').addEventListener('click', closeLiveParcelCamera);
+    document.getElementById('liveCamDoneBtn').addEventListener('click', finishLiveParcelCamera);
+  }
+
+  function captureLiveCamShot(){
+    var video = document.getElementById('liveCamVideo');
+    if(!video || !video.videoWidth){ showToast('Camera still starting \u2014 try again in a moment'); return; }
+    var canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0);
+    canvas.toBlob(function(blob){
+      if(!blob || !state.liveCam) return;
+      var shot = { blob: blob, previewUrl: URL.createObjectURL(blob) };
+      state.liveCam.shots.push(shot);
+      var strip = document.getElementById('liveCamThumbStrip');
+      if(strip){
+        var img = document.createElement('img');
+        img.src = shot.previewUrl;
+        img.style.cssText = 'width:44px;height:56px;object-fit:cover;border-radius:6px;border:1px solid #3c4043;flex-shrink:0;';
+        strip.appendChild(img);
+        strip.scrollLeft = strip.scrollWidth;
+      }
+      var countEl = document.getElementById('liveCamCount');
+      if(countEl){ countEl.textContent = state.liveCam.shots.length + ' parcel' + (state.liveCam.shots.length!==1?'s':'') + ' captured \u2014 keep going or tap Done'; countEl.style.color = '#7fd99a'; }
+      var doneBtn = document.getElementById('liveCamDoneBtn');
+      if(doneBtn){ doneBtn.disabled = false; doneBtn.textContent = 'Done (' + state.liveCam.shots.length + ')'; }
+      // Quick flash for shutter feedback, without disturbing the live feed.
+      video.style.opacity = '0.35';
+      setTimeout(function(){ video.style.opacity = '1'; }, 110);
+    }, 'image/jpeg', 0.85);
+  }
+
+  function closeLiveParcelCamera(){
+    if(state.liveCam && state.liveCam.stream){
+      state.liveCam.stream.getTracks().forEach(function(t){ t.stop(); });
+    }
+    state.liveCam = null;
+    closeModal();
+  }
+
+  function finishLiveParcelCamera(){
+    if(!state.liveCam) return;
+    var shots = state.liveCam.shots.slice();
+    closeLiveParcelCamera();
+    if(shots.length === 0) return;
+    scanParcelPhotos(shots.map(function(s){ return s.blob; }));
   }
 
   async function scanParcelPhotos(files){
