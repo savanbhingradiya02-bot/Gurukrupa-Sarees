@@ -279,10 +279,13 @@
   .shop-tray-item { position: relative; width: 110px; border-radius: 8px; overflow: hidden; background: #202124; }
   .shop-tray-item img { width: 100%; height: 140px; object-fit: cover; display: block; cursor: zoom-in; }
   .shop-tray-caption { font-size: 10px; color: #9aa0a6; padding: 4px 5px; line-height: 1.3; }
-  .purchase-album { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-  .purchase-tile { position: relative; cursor: pointer; border-radius: 12px; overflow: hidden; background: #202124; border: 1px solid #3c4043; transition: transform 0.08s ease; }
+  .purchase-album { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 14px; }
+  @media (max-width: 699px) {
+    .purchase-album { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  }
+  .purchase-tile { position: relative; cursor: pointer; aspect-ratio: 3/4; border-radius: 8px; overflow: hidden; background: #202124; border: 1px solid #3c4043; transition: transform 0.08s ease; }
   .purchase-tile:active { transform: scale(0.97); }
-  .purchase-tile img { width: 100%; height: 250px; object-fit: cover; display: block; transition: transform 0.12s, border-radius 0.12s; }
+  .purchase-tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.12s, border-radius 0.12s; }
   .purchase-tile.selected { border-color: #d97a3f; box-shadow: 0 0 0 2px rgba(217,122,63,0.5); }
   .purchase-tile.selected img { transform: scale(0.9); border-radius: 14px; opacity: 0.4; }
   .purchase-tile-badge { position: absolute; left: 6px; bottom: 6px; font-size: 9.5px; font-weight: 700; padding: 3px 8px; border-radius: 8px; }
@@ -501,13 +504,12 @@
     purchasePhotoPreview: null,
     purchaseScreenshotBlob: null,
     purchaseScreenshotPreview: null,
-    purchaseUpiRefVal: '',
     purchaseRateDrafts: {},
     purchaseBatchChk: {},
     purchaseBatchAmount: '',
     purchaseActionError: '',
     purchaseSaving: false,
-    handover: { active: false, shop: null, unlockInput: '', unlockError: '' },
+    handover: { active: false, shop: null, unlockInput: '', unlockError: '', showUnlockInput: false },
     handoverSetupPin: '',
     myHandoverPinHash: null,
     staffAlertsShownThisSession: false,
@@ -4283,7 +4285,6 @@
       showToast('Could not save: ' + (e && e.message ? e.message : 'try again'));
     }
     state.purchaseSelection = {};
-    state.purchaseUpiRefVal = '';
     render();
     return true;
   }
@@ -4331,10 +4332,15 @@
     html += '<div class="order-card" style="flex:1;text-align:center;padding:12px;"><div style="font-size:11px;color:#9aa0a6;">GPay</div><div style="font-size:19px;font-weight:800;color:' + (gbal.available<0?'#f28b82':'#7fd99a') + ';">\u20b9' + gbal.available.toLocaleString('en-IN') + '</div></div>';
     html += '</div>';
 
-    html += '<div class="filters">';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">';
+    html += '<div class="filters" style="margin-bottom:0;flex:1;">';
     [['pending','Pending'],['all','All'],['polarise','Polarise'],['fabrizo','Fabrizo']].forEach(function(f){
       html += '<div class="filter-chip' + (state.purchaseFilter===f[0]?' active':'') + '" data-shopfilter="' + f[0] + '">' + f[1] + '</div>';
     });
+    html += '</div>';
+    if(isSuperAdmin()){
+      html += '<button class="btn-secondary" id="recentAllPurchasesBtn" style="width:auto;padding:8px 11px;font-size:16px;flex-shrink:0;" title="Recent purchases \u2014 all shops">\ud83d\udd58</button>';
+    }
     html += '</div>';
 
     var shown = 0;
@@ -4387,6 +4393,8 @@
         openZoom(img.getAttribute('data-src'));
       });
     });
+    var recentAllBtn = document.getElementById('recentAllPurchasesBtn');
+    if(recentAllBtn) recentAllBtn.addEventListener('click', function(){ openRecentShopPurchasesModal(null); });
   }
 
   function renderPurchaseShopDetail(shopName){
@@ -4400,10 +4408,9 @@
     var html = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">';
     html += '<button class="btn-secondary" id="purchaseBackBtn" style="width:auto;padding:8px 14px;">\u2039 Shops</button>';
     html += '<div style="font-size:16px;font-weight:700;color:#e8eaed;flex:1;">' + esc(shopName) + '</div>';
+    html += '<button class="btn-secondary" id="handoverModeBtn" style="width:auto;padding:8px 11px;" title="Show this shop to someone else (locked view)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></button>';
     html += '<button class="btn-secondary" id="recentPurchasesBtn" style="width:auto;padding:8px 11px;font-size:16px;" title="Recent purchases at this shop">\ud83d\udd58</button>';
     html += '</div>';
-
-    html += '<button class="btn-secondary" id="handoverModeBtn" style="width:100%;margin-bottom:12px;">\ud83d\udd12 Show this shop to someone else (locked view)</button>';
 
     html += '<div class="filters">';
     ['pending','all'].forEach(function(f){
@@ -4600,9 +4607,6 @@
       if(!upiVpa){
         html += '<div class="field-hint">This shop has no saved UPI ID yet, so you\u2019ll need to pick or scan the payee inside GPay. Ask Soham to add it in Manage Lists for a one-tap pay next time.</div>';
       }
-      html += '<label style="margin-top:8px;">UPI transaction ID / UTR number</label>';
-      html += '<input type="text" id="purchaseUpiRefInput" autocomplete="off" placeholder="e.g. 411223456789" value="' + esc(state.purchaseUpiRefVal||'') + '" style="margin-bottom:10px;">';
-      html += '<div class="field-hint">Open GPay \u2192 that payment \u2192 copy the transaction ID / UTR shown there.</div>';
     }
     if(method === 'challan'){
       var chUrl = state.shopChallanPhotos[state.purchaseShopView];
@@ -4664,8 +4668,6 @@
       methodSel.value = state.purchasePendingMethod || '';
       methodSel.addEventListener('change', function(){ state.purchasePendingMethod = methodSel.value; openPurchaseBuyModal(); });
     }
-    var upiRefInp = document.getElementById('purchaseUpiRefInput');
-    if(upiRefInp) upiRefInp.addEventListener('input', function(){ state.purchaseUpiRefVal = upiRefInp.value; });
     var photoBtn = document.getElementById('purchasePhotoBtn');
     var photoInput = document.getElementById('purchasePhotoInput');
     if(photoBtn && photoInput){
@@ -4673,12 +4675,18 @@
       photoInput.addEventListener('change', async function(e){
         var f = e.target.files && e.target.files[0];
         if(!f) return;
+        photoBtn.disabled = true;
+        photoBtn.textContent = '\u23f3 Processing...';
         try{
-          var blob = await resizeImageToBlob(f, 1000);
+          var blob = await resizeImageToBlob(f, 800);
           state.purchasePhotoBlob = blob;
           state.purchasePhotoPreview = URL.createObjectURL(blob);
           openPurchaseBuyModal();
-        }catch(err){ showToast('Could not process photo'); }
+        }catch(err){
+          showToast('Could not process photo');
+          photoBtn.disabled = false;
+          photoBtn.textContent = '\ud83d\udcf8 Take purchase-time photo';
+        }
       });
     }
     var ssBtn = document.getElementById('purchaseScreenshotBtn');
@@ -4688,12 +4696,19 @@
       ssInput.addEventListener('change', async function(e){
         var f = e.target.files && e.target.files[0];
         if(!f) return;
+        var originalLabel = ssBtn.textContent;
+        ssBtn.disabled = true;
+        ssBtn.textContent = '\u23f3 Processing...';
         try{
-          var blob = await resizeImageToBlob(f, 1000);
+          var blob = await resizeImageToBlob(f, 800);
           state.purchaseScreenshotBlob = blob;
           state.purchaseScreenshotPreview = URL.createObjectURL(blob);
           openPurchaseBuyModal();
-        }catch(err){ showToast('Could not process photo'); }
+        }catch(err){
+          showToast('Could not process photo');
+          ssBtn.disabled = false;
+          ssBtn.textContent = originalLabel;
+        }
       });
     }
     var confirmBtn = document.getElementById('purchaseConfirmBuyBtn');
@@ -4713,11 +4728,6 @@
         state.purchaseActionError = method === 'message' ? 'Add the message screenshot' : 'Add a photo of the challan';
         openPurchaseBuyModal(); return;
       }
-      var upiRef = (state.purchaseUpiRefVal || '').trim();
-      if(method === 'gpay' && !upiRef){
-        state.purchaseActionError = 'Enter the UPI transaction ID / UTR number from GPay';
-        openPurchaseBuyModal(); return;
-      }
       state.purchaseActionError = '';
       state.purchaseSaving = true;
       openPurchaseBuyModal();
@@ -4729,7 +4739,7 @@
         if((method === 'message' || method === 'challan') && state.purchaseScreenshotBlob){
           screenshotUrl = await uploadPurchaseProof(state.purchaseScreenshotBlob, method);
         }
-        var ok = await purchaseSelectedItems(rates, method, photoUrl, screenshotUrl, (method === 'gpay' ? upiRef : null));
+        var ok = await purchaseSelectedItems(rates, method, photoUrl, screenshotUrl, null);
         state.purchaseSaving = false;
         if(ok){
           var total = rates.reduce(function(s,r){ return s + r.rate; }, 0);
@@ -4737,7 +4747,7 @@
           state.purchasePhotoBlob = null; state.purchasePhotoPreview = null;
           state.purchaseScreenshotBlob = null; state.purchaseScreenshotPreview = null;
           state.purchaseRateDrafts = {}; state.purchaseBatchChk = {};
-          openPurchaseConfirmedModal(beforeRows, rates, total, method, method === 'gpay' ? upiRef : null);
+          openPurchaseConfirmedModal(beforeRows, rates, total, method, null);
         }else{
           openPurchaseBuyModal();
         }
@@ -4836,24 +4846,32 @@
   // ===== PURCHASE: recent purchases at this shop, for price cross-checking =====
 
   function openRecentShopPurchasesModal(shopName){
+    var cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     var rows = [];
     state.orders.forEach(function(o){
       (o.items||[]).forEach(function(it){
-        if(it.purchased && (it.shop_name||'') === shopName){ rows.push({ item: it, order: o }); }
+        if(it.purchased && (!shopName || (it.shop_name||'') === shopName) && it.purchased_at && new Date(it.purchased_at).getTime() >= cutoff){
+          rows.push({ item: it, order: o });
+        }
       });
     });
     rows.sort(function(a,b){ return new Date(b.item.purchased_at||0) - new Date(a.item.purchased_at||0); });
-    rows = rows.slice(0, 20);
+    var canUndo = isSuperAdmin();
     var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:400px;text-align:left;max-height:80vh;overflow-y:auto;">';
-    html += '<p style="font-size:15px;font-weight:700;margin:0 0 4px;">Recent purchases \u2014 ' + esc(shopName) + '</p>';
+    html += '<p style="font-size:15px;font-weight:700;margin:0 0 4px;">' + (shopName ? 'Last 7 days \u2014 ' + esc(shopName) : 'Last 7 days \u2014 all shops') + '</p>';
     html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 14px;">Check today\u2019s price against what you paid before here.</p>';
-    if(rows.length === 0){ html += '<div class="empty-state">Nothing purchased here yet.</div>'; }
+    if(rows.length === 0){ html += '<div class="empty-state">Nothing purchased ' + (shopName ? 'here' : 'anywhere') + ' in the last 7 days.</div>'; }
     rows.forEach(function(r){
       var it = r.item, o = r.order;
+      var pieceLabel = o.id;
       html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #3c4043;">';
-      html += '<img class="recentPurchThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url||it.photo_url) + '" style="width:44px;height:56px;object-fit:cover;border-radius:6px;cursor:zoom-in;">';
-      html += '<div style="flex:1;min-width:0;"><div style="font-size:12.5px;color:#e8eaed;">#' + esc(o.id) + (it.size?' \u00b7 '+esc(it.size):'') + '</div><div style="font-size:11px;color:#9aa0a6;">' + esc(formatTime(it.purchased_at)) + ' \u00b7 ' + esc((it.payment_method||'').toUpperCase()) + (it.upi_ref ? ' \u00b7 UPI ' + esc(it.upi_ref) : '') + '</div></div>';
-      html += '<span style="font-size:14px;color:#7fd99a;font-weight:700;">\u20b9' + esc(String(it.purchase_rate)) + '</span>';
+      html += '<img class="recentPurchThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url||it.photo_url) + '" style="width:44px;height:56px;object-fit:cover;border-radius:6px;cursor:zoom-in;flex-shrink:0;">';
+      html += '<div style="flex:1;min-width:0;"><div style="font-size:12.5px;color:#e8eaed;">#' + esc(o.id) + (it.size?' \u00b7 '+esc(it.size):'') + (!shopName ? ' \u00b7 ' + esc(it.shop_name||'') : '') + '</div><div style="font-size:11px;color:#9aa0a6;">' + esc(formatTime(it.purchased_at)) + ' \u00b7 ' + esc((it.payment_method||'').toUpperCase()) + (it.upi_ref ? ' \u00b7 UPI ' + esc(it.upi_ref) : '') + '</div>';
+      if(canUndo){
+        html += '<button class="recentPurchUndoBtn" data-item="' + it.id + '" data-piece="' + esc(pieceLabel) + '" data-rate="' + esc(String(it.purchase_rate)) + '" data-method="' + esc((it.payment_method||'').toUpperCase()) + '" style="margin-top:4px;font-size:10.5px;padding:3px 8px;background:none;border:1px solid #f28b82;color:#f28b82;border-radius:6px;cursor:pointer;">\u21a9\ufe0f Undo (marked by mistake)</button>';
+      }
+      html += '</div>';
+      html += '<span style="font-size:14px;color:#7fd99a;font-weight:700;flex-shrink:0;">\u20b9' + esc(String(it.purchase_rate)) + '</span>';
       html += '</div>';
     });
     html += '<div class="modal-actions"><button id="recentPurchCloseBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Close</button></div>';
@@ -4862,6 +4880,17 @@
     document.getElementById('recentPurchCloseBtn').addEventListener('click', closeModal);
     document.querySelectorAll('.recentPurchThumb').forEach(function(img){
       img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+    });
+    document.querySelectorAll('.recentPurchUndoBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        openUndoPurchaseConfirm(
+          parseInt(btn.getAttribute('data-item'), 10),
+          btn.getAttribute('data-piece'),
+          btn.getAttribute('data-rate'),
+          btn.getAttribute('data-method'),
+          function(){ render(); }
+        );
+      });
     });
   }
 
@@ -4952,7 +4981,7 @@
     return html;
   }
 
-  function openUndoPurchaseConfirm(itemId, pieceLabel, rate, method){
+  function openUndoPurchaseConfirm(itemId, pieceLabel, rate, method, onDone){
     var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:320px;text-align:left;">';
     html += '<p style="font-size:14px;font-weight:700;margin:0 0 8px;">Undo this purchase?</p>';
     html += '<p style="font-size:12.5px;color:#9aa0a6;margin:0 0 14px;">Piece #' + esc(pieceLabel) + ' \u2014 \u20b9' + esc(rate) + ' via ' + esc(method) + '. It goes back to pending in Rajan\u2019s list, and the ' + esc(method) + ' balance is credited back.</p>';
@@ -4963,8 +4992,12 @@
     document.getElementById('undoPurchaseConfirmBtn').addEventListener('click', async function(){
       closeModal();
       await unmarkItemPurchased(itemId);
-      var content = document.getElementById('tabContent');
-      if(content){ content.innerHTML = renderPurchaseLedgerTab(); wirePurchaseLedgerTab(); }
+      if(onDone){
+        onDone();
+      }else{
+        var content = document.getElementById('tabContent');
+        if(content){ content.innerHTML = renderPurchaseLedgerTab(); wirePurchaseLedgerTab(); }
+      }
     });
   }
 
@@ -5505,7 +5538,7 @@
   }
 
   function reallyEnterHandoverMode(shopName){
-    state.handover = { active: true, shop: shopName, unlockInput: '', unlockError: '' };
+    state.handover = { active: true, shop: shopName, unlockInput: '', unlockError: '', showUnlockInput: false };
     render();
     showToast('Locked to ' + shopName + ' \u2014 now turn on Guided Access / Screen Pinning on this phone too');
   }
@@ -5513,7 +5546,7 @@
   async function tryUnlockHandover(pin){
     var hash = await hashPin(pin);
     if(hash === state.myHandoverPinHash){
-      state.handover = { active: false, shop: null, unlockInput: '', unlockError: '' };
+      state.handover = { active: false, shop: null, unlockInput: '', unlockError: '', showUnlockInput: false };
       render();
     }else{
       state.handover.unlockError = 'Wrong PIN';
@@ -5538,24 +5571,38 @@
     if(rows.length === 0){
       html += '<div class="empty-state">Nothing pending here.</div>';
     }
+    html += '<div class="purchase-album">';
     rows.forEach(function(r){
       var it = r.item;
-      html += '<div class="order-card" style="display:flex;gap:12px;align-items:center;">';
-      html += '<img src="' + (it.thumb_url || it.photo_url) + '" style="width:64px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #3c4043;">';
-      html += '<div>';
-      if(it.size){ html += '<div style="font-size:14px;color:#e8eaed;">Size: ' + esc(it.size) + '</div>'; }
-      html += '</div></div>';
+      html += '<div class="purchase-tile">';
+      html += '<button class="album-zoom-btn handoverZoomBtn" data-src="' + it.photo_url + '" aria-label="View full size"><svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"></circle><line x1="15.5" y1="15.5" x2="21" y2="21"></line></svg></button>';
+      html += '<img src="' + (it.thumb_url || it.photo_url) + '" loading="lazy" decoding="async">';
+      html += '<div class="purchase-tile-badge" style="background:rgba(0,0,0,0.6);color:#e8eaed;">Pending</div>';
+      html += '</div>';
     });
+    html += '</div>';
     html += '<div style="margin-top:auto;padding-top:24px;text-align:center;">';
-    html += '<div style="font-size:11.5px;color:#5f6368;margin-bottom:10px;">Rajan\u2019s PIN to unlock</div>';
-    html += '<input type="text" class="pin-input" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" id="handoverUnlockInput" placeholder="\u2022 \u2022 \u2022 \u2022" style="text-align:center;font-size:20px;letter-spacing:6px;width:160px;">';
-    if(state.handover.unlockError){ html += '<div class="error-text" style="margin-top:8px;">' + esc(state.handover.unlockError) + '</div>'; }
-    html += '<br><button class="btn-primary" id="handoverUnlockBtn" style="width:auto;padding:11px 28px;margin-top:12px;">Unlock</button>';
+    if(!state.handover.showUnlockInput){
+      html += '<button class="btn-secondary" id="handoverRevealUnlockBtn" style="width:44px;height:44px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;" aria-label="Unlock"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#9aa0a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></button>';
+    }else{
+      html += '<div style="font-size:11.5px;color:#5f6368;margin-bottom:10px;">Rajan\u2019s PIN to unlock</div>';
+      html += '<input type="text" class="pin-input" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" id="handoverUnlockInput" placeholder="\u2022 \u2022 \u2022 \u2022" style="text-align:center;font-size:20px;letter-spacing:6px;width:160px;">';
+      if(state.handover.unlockError){ html += '<div class="error-text" style="margin-top:8px;">' + esc(state.handover.unlockError) + '</div>'; }
+      html += '<br><button class="btn-primary" id="handoverUnlockBtn" style="width:auto;padding:11px 28px;margin-top:12px;">Unlock</button>';
+    }
     html += '</div></div>';
     return html;
   }
 
   function wireHandoverLockedView(){
+    document.querySelectorAll('.handoverZoomBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){ openZoom(btn.getAttribute('data-src')); });
+    });
+    var revealBtn = document.getElementById('handoverRevealUnlockBtn');
+    if(revealBtn) revealBtn.addEventListener('click', function(){
+      state.handover.showUnlockInput = true;
+      render();
+    });
     var inp = document.getElementById('handoverUnlockInput');
     var btn = document.getElementById('handoverUnlockBtn');
     function attempt(){ if(inp && inp.value.trim()) tryUnlockHandover(inp.value.trim()); }
