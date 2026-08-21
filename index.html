@@ -1747,14 +1747,29 @@
   // service role key needed to create a real login never touches the
   // browser. This function just calls that endpoint and reports back.
   async function createLoginAccount(email, password, role, resellerName){
-    var resp = await fetch('/api/create-account', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.session.access_token },
-      body: JSON.stringify({ email: email, password: password, role: role, resellerName: resellerName, displayName: resellerName })
-    });
-    var data = await resp.json();
-    if(!resp.ok) throw new Error(data.error || 'Could not create login');
-    return data;
+    var payload = JSON.stringify({ email: email, password: password, role: role, resellerName: resellerName, displayName: resellerName });
+    async function attempt(){
+      var resp = await fetch('/api/create-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.session.access_token },
+        body: payload
+      });
+      var data = await resp.json();
+      if(!resp.ok) throw new Error(data.error || 'Could not create login');
+      return data;
+    }
+    try{
+      return await attempt();
+    }catch(err){
+      // A pure network failure (not a real error response from the server)
+      // is usually a transient hiccup — worth one silent retry before
+      // bothering the person with it.
+      if(err && err.message === 'Failed to fetch'){
+        await new Promise(function(r){ setTimeout(r, 1500); });
+        return await attempt();
+      }
+      throw err;
+    }
   }
 
   function openShareLoginWhatsappModal(resellerName, email){
