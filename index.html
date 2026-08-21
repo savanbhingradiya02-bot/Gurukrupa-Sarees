@@ -275,7 +275,7 @@
   .shop-tray-caption { font-size: 10px; color: #9aa0a6; padding: 4px 5px; line-height: 1.3; }
   .purchase-album { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
   .purchase-tile { position: relative; border-radius: 12px; overflow: hidden; background: #202124; border: 1px solid #3c4043; }
-  .purchase-tile img { width: 100%; height: 170px; object-fit: cover; display: block; }
+  .purchase-tile img { width: 100%; height: 250px; object-fit: cover; display: block; }
   .purchase-tile.selected { border-color: #d97a3f; box-shadow: 0 0 0 2px rgba(217,122,63,0.5); }
   .purchase-tile-chk {
     position: absolute; top: 8px; left: 8px; width: 24px; height: 24px; z-index: 2;
@@ -287,9 +287,12 @@
     content: ''; position: absolute; left: 6px; top: 2px; width: 6px; height: 11px;
     border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
   }
-  .purchase-tile-dots { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; border: none; font-size: 16px; font-weight: 700; cursor: pointer; z-index: 2; display: flex; align-items: center; justify-content: center; }
-  .purchase-tile-badge { position: absolute; left: 6px; bottom: 6px; right: 6px; font-size: 10px; font-weight: 700; padding: 3px 7px; border-radius: 8px; text-align: center; }
-  .purchase-tile-order { position: absolute; top: 8px; left: 38px; font-size: 10.5px; font-weight: 700; color: #fff; background: rgba(0,0,0,0.55); padding: 2px 7px; border-radius: 8px; }
+  .purchase-tile-dots { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; border: none; font-size: 14px; font-weight: 700; cursor: pointer; z-index: 2; display: flex; align-items: center; justify-content: center; }
+  .purchase-tile-badge { position: absolute; left: 6px; bottom: 6px; font-size: 9.5px; font-weight: 700; padding: 3px 8px; border-radius: 8px; }
+  .purchase-shop-row-thumbs { display: flex; align-items: center; flex-shrink: 0; }
+  .purchase-shop-row-thumbs img { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; border: 2px solid #131314; margin-left: -10px; }
+  .purchase-shop-row-thumbs img:first-child { margin-left: 0; }
+  .purchase-bar-dots { width: 44px; height: 44px; border-radius: 10px; background: #28292c; border: 1px solid #3c4043; color: #e8eaed; font-size: 18px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
   .banner.warn { background: rgba(253,214,99,0.12); border: 1px solid rgba(253,214,99,0.3); color: #fdd663; }
   .banner.err { background: rgba(242,139,130,0.12); border: 1px solid rgba(242,139,130,0.3); color: #f28b82; }
 
@@ -859,7 +862,17 @@
   }
 
   function myAllowedStaffTabs(){
-    return STAFF_TAB_CONFIG.filter(function(t){ return staffTabAllowed(t.key); });
+    // Unrestricted staff (Soham, Bhagyasree) keep the natural left-to-right
+    // order defined in STAFF_TAB_CONFIG. A restricted account's own
+    // allowed_tabs array order controls its tab bar order instead — so
+    // Rajan's array being ['purchase','ship','tracking'] puts Purchase
+    // first, without needing a separate config just for him.
+    if(!state.myAllowedTabs){
+      return STAFF_TAB_CONFIG.filter(function(t){ return staffTabAllowed(t.key); });
+    }
+    var byKey = {};
+    STAFF_TAB_CONFIG.forEach(function(t){ byKey[t.key] = t; });
+    return state.myAllowedTabs.map(function(k){ return byKey[k]; }).filter(Boolean);
   }
 
   function isPurchaser(){
@@ -1040,6 +1053,10 @@
       state.staffAlertsShownThisSession = true;
       var rajanAlerts = computeRajanDelayAlerts();
       if(rajanAlerts.length > 0){ openStaffAlertsModal(rajanAlerts, 'Rajan is running behind on ' + rajanAlerts.length + ' piece' + (rajanAlerts.length!==1?'s':'')); }
+    }else if(!isAdminStaff() && state.myRole === 'staff' && state.myAllowedTabs && state.myAllowedTabs.indexOf('purchase') !== -1 && !state.staffAlertsShownThisSession){
+      state.staffAlertsShownThisSession = true;
+      var dueAlerts = computeDueRestockAlerts();
+      if(dueAlerts.length > 0){ openStaffAlertsModal(dueAlerts, '\ud83d\ude9a Time to collect ' + dueAlerts.length + ' piece' + (dueAlerts.length!==1?'s':'')); }
     }
   }
 
@@ -1135,6 +1152,29 @@
         }else if(!it.restock_date && hrs > RAJAN_NO_UPDATE_HOURS){
           alerts.push({ orderId: o.id, severity: 'medium',
             message: 'Order #' + o.id + ' at ' + shop + ' hasn\u2019t been collected yet \u2014 ' + Math.floor(hrs/24) + '+ day' + (Math.floor(hrs/24)!==1?'s':'') + ' since booking.' });
+        }
+      });
+    });
+    var seen = {};
+    return alerts.filter(function(a){ if(seen[a.message]) return false; seen[a.message]=true; return true; });
+  }
+
+  // Shown to Rajan himself: pieces whose restock date has arrived (today)
+  // or already passed, and are still not purchased — a direct "go collect
+  // this" nudge. Distinct from computeRajanDelayAlerts(), which is the same
+  // underlying signal but phrased for Bhagyasree/admin as a delay report.
+  function computeDueRestockAlerts(){
+    var alerts = [];
+    var today = new Date().toISOString().slice(0,10);
+    state.orders.forEach(function(o){
+      if(o.status === 'cancelled') return;
+      (o.items||[]).forEach(function(it){
+        if(it.purchased) return;
+        var shop = it.shop_name;
+        if(!shop || shop === 'Name Pending') return;
+        if(it.restock_date && it.restock_date <= today){
+          alerts.push({ orderId: o.id, severity: it.restock_date < today ? 'high' : 'medium',
+            message: (it.restock_date < today ? 'Overdue \u2014 ' : 'Today \u2014 ') + shop + ' said order #' + o.id + ' would be ready by ' + formatRestockDate(it.restock_date) + '. Go collect it.' });
         }
       });
     });
@@ -4088,11 +4128,20 @@
       if(state.purchaseFilter === 'fabrizo' && shopMatchesPolarise(g.name)) return;
       shown++;
       var restockNeeded = pending.filter(function(r){ return !r.item.restock_date; }).length;
-      html += '<div class="order-card purchaseShopCard" data-shop="' + esc(g.name) + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">';
-      html += '<div><div style="font-size:15px;font-weight:700;color:#e8eaed;">' + esc(g.name) + '</div>';
+      var previewThumbs = pending.slice(0, 3);
+      html += '<div class="order-card purchaseShopCard" data-shop="' + esc(g.name) + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;">';
+      html += '<div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:700;color:#e8eaed;">' + esc(g.name) + '</div>';
       html += '<div style="font-size:12px;color:#9aa0a6;margin-top:2px;">' + pending.length + ' pending \u00b7 ' + (g.rows.length - pending.length) + ' purchased</div>';
       if(restockNeeded > 0){ html += '<div style="font-size:11.5px;color:#f2a76a;margin-top:2px;">\u26a0\ufe0f ' + restockNeeded + ' need restock date</div>'; }
-      html += '</div><span style="color:#9aa0a6;font-size:18px;">\u203a</span></div>';
+      html += '</div>';
+      if(previewThumbs.length > 0){
+        html += '<div class="purchase-shop-row-thumbs">';
+        previewThumbs.forEach(function(r){
+          html += '<img src="' + (r.item.thumb_url || r.item.photo_url) + '">';
+        });
+        html += '</div>';
+      }
+      html += '<span style="color:#9aa0a6;font-size:18px;flex-shrink:0;">\u203a</span></div>';
     });
     if(shown === 0){ html += '<div class="empty-state">' + (state.purchaseFilter==='pending' ? 'Nothing pending to collect.' : 'No shops match.') + '</div>'; }
     return html;
@@ -4149,13 +4198,12 @@
 
     html += '<div class="purchase-album">';
     rows.forEach(function(r){
-      var o = r.order, it = r.item;
+      var it = r.item;
       var sel = !!state.purchaseSelection[it.id];
       html += '<div>';
       html += '<div class="purchase-tile' + (sel?' selected':'') + '">';
       if(!it.purchased){ html += '<input type="checkbox" class="purchase-tile-chk purchaseItemChk" data-item="' + it.id + '" ' + (sel?'checked':'') + '>'; }
-      html += '<span class="purchase-tile-order">#' + esc(o.id) + (o.urgent?' \ud83d\udea8':'') + '</span>';
-      html += '<button class="purchase-tile-dots photoActionsBtn" data-item="' + it.id + '">\u22ee</button>';
+      html += '<button class="purchase-tile-dots photoZoomBtn" data-src="' + it.photo_url + '">\ud83d\udd0d</button>';
       html += '<img class="purchaseThumb" data-src="' + it.photo_url + '" src="' + (it.thumb_url || it.photo_url) + '">';
       if(it.purchased){
         html += '<div class="purchase-tile-badge" style="background:rgba(127,217,154,0.9);color:#0b1f14;">\u2713 \u20b9' + esc(String(it.purchase_rate)) + '</div>';
@@ -4174,6 +4222,7 @@
       html += '<div style="position:fixed;left:0;right:0;bottom:0;background:#18191b;border-top:1px solid #3c4043;padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;z-index:15;max-width:480px;margin:0 auto;box-shadow:0 -4px 16px rgba(0,0,0,0.4);">';
       html += '<button class="btn-primary" id="purchaseOpenBuyBtn" style="flex:1;">\u2713 Mark Purchased (' + selCount + ')</button>';
       html += '<button class="btn-secondary" id="purchaseOpenRestockBtn" style="flex:1;">\ud83d\udcc5 Restock (' + selCount + ')</button>';
+      html += '<button class="purchase-bar-dots" id="purchaseBulkMenuBtn">\u22ee</button>';
       html += '</div>';
       html += '<div style="height:66px;"></div>';
     }
@@ -4218,10 +4267,10 @@
         render();
       });
     });
-    document.querySelectorAll('.photoActionsBtn').forEach(function(btn){
+    document.querySelectorAll('.photoZoomBtn').forEach(function(btn){
       btn.addEventListener('click', function(e){
         e.stopPropagation();
-        openPhotoActionsModal(parseInt(btn.getAttribute('data-item'), 10));
+        openZoom(btn.getAttribute('data-src'));
       });
     });
     var openBuyBtn = document.getElementById('purchaseOpenBuyBtn');
@@ -4233,39 +4282,37 @@
     if(openRestockBtn) openRestockBtn.addEventListener('click', function(){
       openPurchaseRestockModal();
     });
+    var bulkMenuBtn = document.getElementById('purchaseBulkMenuBtn');
+    if(bulkMenuBtn) bulkMenuBtn.addEventListener('click', function(){
+      openPurchaseBulkMenuModal();
+    });
   }
 
-  // ===== PURCHASE: photo actions (view / change shop) =====
+  // ===== PURCHASE: bulk actions menu (currently just change shop; room to grow) =====
 
-  function openPhotoActionsModal(itemId){
-    var item = null, order = null;
-    state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(it.id === itemId){ item = it; order = o; } }); });
-    if(!item) return;
+  function openPurchaseBulkMenuModal(){
     var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:320px;text-align:left;">';
-    html += '<p style="font-size:14px;font-weight:700;margin:0 0 12px;">#' + esc(order.id) + '</p>';
-    html += '<button class="btn-secondary photoActionViewBtn" style="width:100%;margin-bottom:8px;text-align:left;">\ud83d\udd0d View photo</button>';
-    if(!item.purchased){
-      html += '<button class="btn-secondary photoActionChangeShopBtn" style="width:100%;text-align:left;">\ud83d\udd04 Wrong shop? Change</button>';
-      html += '<div id="photoActionShopChangeArea" style="display:none;margin-top:10px;">';
-      html += '<input type="text" id="photoActionNewShopInput" list="shopList" autocomplete="off" placeholder="New shop name" style="margin-bottom:8px;">';
-      html += '<button class="btn-primary" id="photoActionConfirmShopBtn" style="width:auto;padding:8px 14px;">Move</button></div>';
-    }
-    html += '<div class="modal-actions"><button id="photoActionCloseBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Close</button></div>';
+    html += '<p style="font-size:14px;font-weight:700;margin:0 0 12px;">More actions</p>';
+    html += '<button class="btn-secondary" id="bulkChangeShopBtn" style="width:100%;margin-bottom:8px;text-align:left;">\ud83d\udd04 Wrong shop? Change all selected</button>';
+    html += '<div id="bulkShopChangeArea" style="display:none;margin-top:6px;">';
+    html += '<input type="text" id="bulkNewShopInput" list="shopList" autocomplete="off" placeholder="New shop name" style="margin-bottom:8px;">';
+    html += '<button class="btn-primary" id="bulkConfirmShopBtn" style="width:auto;padding:8px 14px;">Move</button></div>';
+    html += '<div class="modal-actions"><button id="bulkMenuCloseBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Close</button></div>';
     html += '</div></div>';
     document.getElementById('modalHost').innerHTML = html;
-    document.getElementById('photoActionCloseBtn').addEventListener('click', closeModal);
-    document.querySelector('.photoActionViewBtn').addEventListener('click', function(){ openZoom(item.photo_url); });
-    var changeBtn = document.querySelector('.photoActionChangeShopBtn');
-    if(changeBtn) changeBtn.addEventListener('click', function(){
-      var area = document.getElementById('photoActionShopChangeArea');
+    document.getElementById('bulkMenuCloseBtn').addEventListener('click', closeModal);
+    document.getElementById('bulkChangeShopBtn').addEventListener('click', function(){
+      var area = document.getElementById('bulkShopChangeArea');
       area.style.display = area.style.display === 'none' ? 'block' : 'none';
     });
-    var confirmShopBtn = document.getElementById('photoActionConfirmShopBtn');
-    if(confirmShopBtn) confirmShopBtn.addEventListener('click', function(){
-      var val = (document.getElementById('photoActionNewShopInput').value || '').trim();
+    document.getElementById('bulkConfirmShopBtn').addEventListener('click', function(){
+      var val = (document.getElementById('bulkNewShopInput').value || '').trim();
       if(!val){ showToast('Enter a shop name'); return; }
+      var ids = Object.keys(state.purchaseSelection).filter(function(k){ return state.purchaseSelection[k]; }).map(Number);
       closeModal();
-      reassignItemShop(itemId, val);
+      ids.forEach(function(id){ reassignItemShop(id, val); });
+      state.purchaseSelection = {};
+      state.purchaseShopView = val;
     });
   }
 
@@ -5091,6 +5138,51 @@
     }
   }
 
+  // ===== TAB PASSCODE GATE (Ship Album / Tracking, restricted accounts only) =====
+  // Reuses the same passcode Rajan already set for Handover Mode — one PIN
+  // for both purposes. Only restricted staff accounts are gated; Soham and
+  // Bhagyasree (unrestricted) open every tab normally.
+  function tabRequiresPinGate(key){
+    return !!state.myAllowedTabs && (key === 'ship' || key === 'tracking');
+  }
+
+  function openTabPinGateModal(tabKey){
+    if(!state.myHandoverPinHash){
+      var pin = prompt('Set a 4\u20136 digit passcode first \u2014 you\u2019ll need it each time to open this tab.');
+      if(!pin) return;
+      setupHandoverPin(pin.trim()).then(function(ok){ if(ok) openTabPinGateModal(tabKey); });
+      return;
+    }
+    var html = '<div class="modal-overlay"><div class="modal-box" style="max-width:300px;text-align:center;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0 0 12px;">Enter passcode</p>';
+    html += '<input type="password" inputmode="numeric" maxlength="6" id="tabPinInput" placeholder="\u2022 \u2022 \u2022 \u2022" style="text-align:center;font-size:20px;letter-spacing:6px;">';
+    html += '<div id="tabPinError" class="error-text" style="display:none;margin-top:8px;"></div>';
+    html += '<div class="modal-actions"><button id="tabPinCancelBtn" style="background:#28292c;border:1px solid #3c4043;color:#e8eaed;">Cancel</button><button id="tabPinUnlockBtn" style="background:#d97a3f;color:#fff;border:none;">Unlock</button></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    var inp = document.getElementById('tabPinInput');
+    inp.focus();
+    document.getElementById('tabPinCancelBtn').addEventListener('click', closeModal);
+    async function attempt(){
+      var pin = (inp.value || '').trim();
+      if(!pin) return;
+      var hash = await hashPin(pin);
+      if(hash === state.myHandoverPinHash){
+        closeModal();
+        state.tab = tabKey;
+        render();
+      }else{
+        var errEl = document.getElementById('tabPinError');
+        errEl.textContent = 'Wrong passcode';
+        errEl.style.display = 'block';
+        inp.value = '';
+        inp.focus();
+      }
+    }
+    document.getElementById('tabPinUnlockBtn').addEventListener('click', attempt);
+    inp.addEventListener('keydown', function(e){ if(e.key === 'Enter') attempt(); });
+  }
+
   function enterHandoverMode(shopName){
     if(!state.myHandoverPinHash){
       var pin = prompt('Set a 4\u20136 digit PIN first \u2014 you\u2019ll need it to exit handover mode later.');
@@ -5280,7 +5372,12 @@
     var exitSwitchBtn = document.getElementById('exitSwitchBtn');
     if(exitSwitchBtn) exitSwitchBtn.addEventListener('click', exitAccountSwitch);
     document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn){
-      btn.addEventListener('click', function(){ state.tab = btn.getAttribute('data-tab'); render(); });
+      btn.addEventListener('click', function(){
+        var key = btn.getAttribute('data-tab');
+        if(tabRequiresPinGate(key)){ openTabPinGateModal(key); return; }
+        state.tab = key;
+        render();
+      });
     });
 
     function openSidebar(){
