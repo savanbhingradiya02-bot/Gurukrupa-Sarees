@@ -89,9 +89,6 @@
     .order-photos { column-count: 10; }
   }
   @media (max-width: 699px) {
-    .brand-wrap { padding-left: 44px; padding-right: 44px; }
-    .app-brand { font-size: 28px; letter-spacing: 0.5px; margin: 4px 0 2px; }
-    .app-brand-sub { font-size: 9px; letter-spacing: 2.5px; margin: 0 0 12px; }
     .tabs { margin-bottom: 12px; padding: 8px 0; }
     .shop-name-tag { max-width: calc(100% - 12px); white-space: nowrap; font-size: 10px; padding: 3px 7px; }
     .item-shipped-tag { font-size: 10px; padding: 3px 7px; }
@@ -422,6 +419,19 @@
       column-count: 2; column-gap: 18px;
     }
     .print-slip { background: #fff !important; }
+  }
+  /* This must stay the LAST rule in the stylesheet. The base .app-brand
+     rule above uses a viewport-width-based clamp() that, on a typical
+     phone, computes to ~45px — noticeably bigger than intended, since
+     CSS resolves same-specificity rules by source order and this file
+     originally had the mobile override earlier in the file (so the later
+     unconditional rule was silently winning and the "smaller on mobile"
+     override never actually applied). Keeping this block last guarantees
+     it always wins, regardless of what gets added above it later. */
+  @media (max-width: 699px) {
+    .brand-wrap { padding-left: 44px; padding-right: 44px; }
+    .app-brand { font-size: 26px; letter-spacing: 0.5px; margin: 4px 0 2px; }
+    .app-brand-sub { font-size: 9px; letter-spacing: 2.5px; margin: 0 0 12px; }
   }
 </style>
 </head>
@@ -3275,7 +3285,7 @@
     html += '<div class="login-box">';
     html += '<p class="login-tagline">Sign in to your account</p>';
     html += '<div class="field"><label>Email</label><input type="email" id="loginEmail" value="' + esc(state.loginEmailVal||'') + '"></div>';
-    html += '<div class="field"><label>Password</label><input type="password" id="loginPassword"></div>';
+    html += '<div class="field"><label>Password</label><div style="position:relative;"><input type="password" id="loginPassword" style="padding-right:44px;"><button type="button" id="loginPasswordToggle" aria-label="Show password" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:8px;display:flex;align-items:center;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#9aa0a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div></div>';
     if(state.loginError){ html += '<div class="error-text">' + esc(state.loginError) + '</div>'; }
     if(state.forgotPasswordSent){ html += '<div class="field-hint" style="color:#7fd99a;">Reset link sent \u2014 check that email.</div>'; }
     html += '<button class="btn-primary" id="loginBtn">Sign in</button>';
@@ -3285,6 +3295,16 @@
   }
 
   function wireLogin(){
+    var pwToggle = document.getElementById('loginPasswordToggle');
+    if(pwToggle) pwToggle.addEventListener('click', function(){
+      var pwInput = document.getElementById('loginPassword');
+      var showing = pwInput.type === 'text';
+      pwInput.type = showing ? 'password' : 'text';
+      pwToggle.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+      pwToggle.innerHTML = showing
+        ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#9aa0a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>'
+        : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#9aa0a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+    });
     document.getElementById('loginBtn').addEventListener('click', function(){
       var email = document.getElementById('loginEmail').value.trim();
       var pw = document.getElementById('loginPassword').value;
