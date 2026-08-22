@@ -311,8 +311,10 @@
     font-size: 13px; color: transparent; z-index: 2; opacity: 0; transition: opacity 0.12s;
   }
   .album-cell.selected .album-check { background: #8ab4f8; border-color: #8ab4f8; color: #131314; opacity: 1; }
+  .purchase-tile.selected .album-check { background: #8ab4f8; border-color: #8ab4f8; color: #131314; opacity: 1; }
   @media (hover: hover) {
     .album-cell:hover .album-check { opacity: 1; }
+    .purchase-tile:hover .album-check { opacity: 1; }
   }
   .album-zoom-btn {
     position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%;
@@ -1530,11 +1532,9 @@
   async function deleteOrder(id){
     var ord = state.orders.find(function(o){ return o.id === id; });
 
-    // Delete child order_items first — required before the order row can go,
-    // since order_items.order_id references orders.id.
-    var { error: itemsErr } = await sb.from('order_items').delete().eq('order_id', id);
-    if(itemsErr){ showToast('Delete failed: ' + itemsErr.message); return; }
-
+    // order_items now cascade-deletes automatically at the database level
+    // (foreign key set to ON DELETE CASCADE), so this is one round trip
+    // instead of two sequential ones.
     var { error } = await sb.from('orders').delete().eq('id', id);
     if(error){ showToast('Delete failed: ' + error.message); return; }
 
@@ -4624,8 +4624,8 @@
     if(state.shopBookingSelectMode && isSuperAdmin()){
       var selCount = Object.keys(state.shopBookingSelection).filter(function(k){ return state.shopBookingSelection[k]; }).length;
       html += '<div style="position:sticky;bottom:0;background:#131314;padding:12px 0;display:flex;gap:8px;">';
-      html += '<button class="btn-secondary" id="shopBookingChangeShopBtn" style="flex:1;" ' + (selCount===0?'disabled':'') + '>\u270f\ufe0f Change shop (' + selCount + ')</button>';
-      html += '<button class="btn-secondary" id="shopBookingDeleteBtn" style="flex:1;color:#f28b82;" ' + (selCount===0?'disabled':'') + '>\ud83d\uddd1\ufe0f Delete (' + selCount + ')</button>';
+      html += '<button class="btn-secondary" id="shopBookingChangeShopBtn" style="flex:1;" ' + (selCount===0?'disabled':'') + '>\u270f\ufe0f Change shop (<span id="shopBookingChangeShopCount">' + selCount + '</span>)</button>';
+      html += '<button class="btn-secondary" id="shopBookingDeleteBtn" style="flex:1;color:#f28b82;" ' + (selCount===0?'disabled':'') + '>\ud83d\uddd1\ufe0f Delete (<span id="shopBookingDeleteCount">' + selCount + '</span>)</button>';
       html += '</div>';
     }
 
@@ -4654,8 +4654,18 @@
         var tile = img.closest('[data-select-item]');
         if(tile){
           var id = parseInt(tile.getAttribute('data-select-item'), 10);
-          if(state.shopBookingSelection[id]){ delete state.shopBookingSelection[id]; } else { state.shopBookingSelection[id] = true; }
-          render();
+          var nowSelected = !state.shopBookingSelection[id];
+          if(nowSelected){ state.shopBookingSelection[id] = true; } else { delete state.shopBookingSelection[id]; }
+          tile.classList.toggle('selected', nowSelected);
+          var selCount = Object.keys(state.shopBookingSelection).filter(function(k){ return state.shopBookingSelection[k]; }).length;
+          var changeShopBtn = document.getElementById('shopBookingChangeShopBtn');
+          var deleteBtn = document.getElementById('shopBookingDeleteBtn');
+          var changeCount = document.getElementById('shopBookingChangeShopCount');
+          var deleteCount = document.getElementById('shopBookingDeleteCount');
+          if(changeShopBtn) changeShopBtn.disabled = selCount === 0;
+          if(deleteBtn) deleteBtn.disabled = selCount === 0;
+          if(changeCount) changeCount.textContent = selCount;
+          if(deleteCount) deleteCount.textContent = selCount;
         }else{
           openZoom(img.getAttribute('data-src'));
         }
@@ -5137,16 +5147,31 @@
     });
     html += '</div>';
 
-    if(selCount > 0){
-      html += '<div style="position:fixed;left:0;right:0;bottom:0;background:#18191b;border-top:1px solid #3c4043;padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;z-index:15;max-width:480px;margin:0 auto;box-shadow:0 -4px 16px rgba(0,0,0,0.4);">';
-      html += '<button class="btn-primary" id="purchaseOpenBuyBtn" style="flex:1;">\u2713 Mark Purchased (' + selCount + ')</button>';
-      html += '<button class="btn-secondary" id="purchaseOpenRestockBtn" style="flex:1;">\ud83d\udcc5 Restock (' + selCount + ')</button>';
-      html += '<button class="purchase-bar-dots" id="purchaseBulkMenuBtn">\u22ee</button>';
-      html += '</div>';
-      html += '<div style="height:66px;"></div>';
-    }
+    html += '<div id="purchaseActionBar" style="position:fixed;left:0;right:0;bottom:0;background:#18191b;border-top:1px solid #3c4043;padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:' + (selCount > 0 ? 'flex' : 'none') + ';gap:8px;z-index:15;max-width:480px;margin:0 auto;box-shadow:0 -4px 16px rgba(0,0,0,0.4);">';
+    html += '<button class="btn-primary" id="purchaseOpenBuyBtn" style="flex:1;">\u2713 Mark Purchased (<span id="purchaseBuyCount">' + selCount + '</span>)</button>';
+    html += '<button class="btn-secondary" id="purchaseOpenRestockBtn" style="flex:1;">\ud83d\udcc5 Restock (<span id="purchaseRestockCount">' + selCount + '</span>)</button>';
+    html += '<button class="purchase-bar-dots" id="purchaseBulkMenuBtn">\u22ee</button>';
+    html += '</div>';
+    html += '<div id="purchaseActionBarSpacer" style="height:' + (selCount > 0 ? '66px' : '0') + ';"></div>';
 
     return html;
+  }
+
+  function updatePurchaseActionBar(){
+    var selCount = Object.keys(state.purchaseSelection).filter(function(k){ return state.purchaseSelection[k]; }).length;
+    var bar = document.getElementById('purchaseActionBar');
+    var spacer = document.getElementById('purchaseActionBarSpacer');
+    if(bar) bar.style.display = selCount > 0 ? 'flex' : 'none';
+    if(spacer) spacer.style.height = selCount > 0 ? '66px' : '0';
+    var buyCount = document.getElementById('purchaseBuyCount');
+    var restockCount = document.getElementById('purchaseRestockCount');
+    if(buyCount) buyCount.textContent = selCount;
+    if(restockCount) restockCount.textContent = selCount;
+    var selectAllBtn = document.getElementById('purchaseSelectAllBtn');
+    if(selectAllBtn){
+      var pendingTileCount = document.querySelectorAll('.purchase-tile[data-item]').length;
+      selectAllBtn.textContent = (selCount === pendingTileCount && pendingTileCount > 0) ? 'Unselect all' : 'Select all pending';
+    }
   }
 
   function wirePurchaseShopDetail(){
@@ -5179,8 +5204,10 @@
     document.querySelectorAll('.purchase-tile[data-item]').forEach(function(tile){
       tile.addEventListener('click', function(){
         var id = parseInt(tile.getAttribute('data-item'), 10);
-        if(state.purchaseSelection[id]){ delete state.purchaseSelection[id]; } else { state.purchaseSelection[id] = true; }
-        render();
+        var nowSelected = !state.purchaseSelection[id];
+        if(nowSelected){ state.purchaseSelection[id] = true; } else { delete state.purchaseSelection[id]; }
+        tile.classList.toggle('selected', nowSelected);
+        updatePurchaseActionBar();
       });
     });
     document.querySelectorAll('.photoZoomBtn').forEach(function(btn){
