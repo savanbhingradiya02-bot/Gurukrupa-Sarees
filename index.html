@@ -502,6 +502,7 @@
     selectedTrackingReseller: null,
     billingQuery: '',
     billingUnpricedOnly: false,
+    billingEditingItems: {},
     cashTopups: [],
     gpayTopups: [],
     topupAmountVal: '',
@@ -1246,10 +1247,7 @@
   function openMyAlertsModal(){
     var alerts = [];
     if(isAdminStaff() && !isSuperAdmin()){
-      // Bhagyasree — same things her periodic reminders already check, available on demand.
-      getItemsNeedingShop().forEach(function(e){
-        alerts.push({ orderId: e.order.id, severity: 'medium', message: 'Piece #' + (e.order.id + '-' + (e.itemIndex+1)) + ' still needs a shop assigned.' });
-      });
+      // Bhagyasree — tracking-fill only, on demand.
       getOrdersNeedingTracking().forEach(function(o){
         alerts.push({ orderId: o.id, severity: 'medium', message: 'Order #' + o.id + ' is shipped but still has no tracking number.' });
       });
@@ -1709,10 +1707,19 @@
     if(e.key === 'Escape'){ closeModal(); }
   });
 
-  function openZoom(photoSrc){
+  function openZoom(photoSrc, thumbSrc){
+    var initialSrc = thumbSrc || photoSrc;
     document.getElementById('modalHost').innerHTML =
-      '<div class="modal-overlay" id="zoomOverlay"><img class="zoom-img" src="' + photoSrc + '"></div>';
+      '<div class="modal-overlay" id="zoomOverlay"><img class="zoom-img" id="zoomImg" src="' + initialSrc + '"></div>';
     document.getElementById('zoomOverlay').addEventListener('click', closeModal);
+    if(thumbSrc && thumbSrc !== photoSrc){
+      var fullImg = new Image();
+      fullImg.onload = function(){
+        var target = document.getElementById('zoomImg');
+        if(target) target.src = photoSrc; // swap in the sharp version once it's actually ready
+      };
+      fullImg.src = photoSrc;
+    }
   }
 
   function openDeleteConfirm(id){
@@ -4496,11 +4503,14 @@
         var pieceId = entry.order.id + '-' + (entry.itemIndex+1);
         var st = entry.order.status === 'cancelled' ? 'cancelled' : entry.item.status;
         var sel = !!state.shopBookingSelection[entry.item.id];
-        html += '<div class="shop-tray-item' + (sel?' selected':'') + '">';
+        html += '<div class="shop-tray-item' + (sel?' selected':'') + '"' + (state.shopBookingSelectMode && isSuperAdmin() ? ' data-select-item="' + entry.item.id + '"' : '') + '>';
         if(state.shopBookingSelectMode && isSuperAdmin()){
-          html += '<input type="checkbox" class="shopBookingItemChk" data-item="' + entry.item.id + '" ' + (sel?'checked':'') + ' style="position:absolute;top:4px;left:4px;z-index:3;width:20px;height:20px;">';
+          html += '<input type="checkbox" class="shopBookingItemChk" data-item="' + entry.item.id + '" ' + (sel?'checked':'') + ' style="position:absolute;top:4px;left:4px;z-index:3;width:20px;height:20px;pointer-events:none;">';
         }
         html += '<img class="orderPhoto" data-src="' + entry.item.photo_url + '" src="' + (entry.item.thumb_url || entry.item.photo_url) + '" loading="lazy" decoding="async">';
+        if(state.shopBookingSelectMode && isSuperAdmin()){
+          html += '<button class="album-zoom-btn shopBookingZoomBtn" data-src="' + entry.item.photo_url + '" aria-label="View full size" style="z-index:3;"><svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"></circle><line x1="15.5" y1="15.5" x2="21" y2="21"></line></svg></button>';
+        }
         if(mode === 'all'){
           html += '<span style="position:absolute;top:4px;right:4px;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;background:rgba(0,0,0,0.8);color:#fff;">' + statusLabel[st] + '</span>';
         }
@@ -4539,7 +4549,19 @@
       });
     });
     document.querySelectorAll('.orderPhoto').forEach(function(img){
-      img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
+      img.addEventListener('click', function(){
+        var tile = img.closest('[data-select-item]');
+        if(tile){
+          var id = parseInt(tile.getAttribute('data-select-item'), 10);
+          if(state.shopBookingSelection[id]){ delete state.shopBookingSelection[id]; } else { state.shopBookingSelection[id] = true; }
+          render();
+        }else{
+          openZoom(img.getAttribute('data-src'));
+        }
+      });
+    });
+    document.querySelectorAll('.shopBookingZoomBtn').forEach(function(btn){
+      btn.addEventListener('click', function(e){ e.stopPropagation(); openZoom(btn.getAttribute('data-src')); });
     });
     document.querySelectorAll('.shop-share-btn').forEach(function(btn){
       btn.addEventListener('click', function(){ shareShopToWhatsApp(btn.getAttribute('data-shop'), btn); });
@@ -5001,7 +5023,7 @@
       var sel = !!state.purchaseSelection[it.id];
       html += '<div class="purchase-tile' + (sel?' selected':'') + '"' + (!it.purchased ? ' data-item="' + it.id + '"' : '') + '>';
       if(!it.purchased){ html += '<div class="album-check">\u2713</div>'; }
-      html += '<button class="album-zoom-btn photoZoomBtn" data-src="' + it.photo_url + '" aria-label="View full size"><svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"></circle><line x1="15.5" y1="15.5" x2="21" y2="21"></line></svg></button>';
+      html += '<button class="album-zoom-btn photoZoomBtn" data-src="' + it.photo_url + '" data-thumb="' + (it.thumb_url || it.photo_url) + '" aria-label="View full size"><svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"></circle><line x1="15.5" y1="15.5" x2="21" y2="21"></line></svg></button>';
       html += '<img class="purchaseThumb" src="' + (it.thumb_url || it.photo_url) + '" loading="lazy" decoding="async">';
       if(it.purchased){
         html += '<div class="purchase-tile-badge" style="background:rgba(127,217,154,0.9);color:#0b1f14;">\u2713 \u20b9' + esc(String(it.purchase_rate)) + '</div>';
@@ -5063,7 +5085,7 @@
     document.querySelectorAll('.photoZoomBtn').forEach(function(btn){
       btn.addEventListener('click', function(e){
         e.stopPropagation();
-        openZoom(btn.getAttribute('data-src'));
+        openZoom(btn.getAttribute('data-src'), btn.getAttribute('data-thumb'));
       });
     });
     var openBuyBtn = document.getElementById('purchaseOpenBuyBtn');
@@ -5352,14 +5374,26 @@
   // ===== PURCHASE: restock-date bottom sheet (supports different dates per subset) =====
 
   function openPurchaseRestockModal(){
-    var ids = Object.keys(state.purchaseSelection).filter(function(k){ return state.purchaseSelection[k]; }).map(Number);
-    if(ids.length === 0) return;
+    var selectedIds = Object.keys(state.purchaseSelection).filter(function(k){ return state.purchaseSelection[k]; }).map(Number);
     var rows = [];
-    state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(ids.indexOf(it.id) !== -1){ rows.push({ order: o, item: it }); } }); });
+    state.orders.forEach(function(o){ (o.items||[]).forEach(function(it){ if(selectedIds.indexOf(it.id) !== -1 && !it.restock_date){ rows.push({ order: o, item: it }); } }); });
+
+    if(rows.length === 0){
+      state.purchaseSelection = {};
+      state.purchaseBatchChk = {};
+      closeModal();
+      showToast('All done \u2014 every piece now has a restock date');
+      render();
+      return;
+    }
+    var ids = rows.map(function(r){ return r.item.id; });
+
+    var allChecked = ids.length > 0 && ids.every(function(id){ return state.purchaseBatchChk[id] === true; });
 
     var html = '<div class="modal-overlay" style="align-items:flex-end;"><div class="modal-box" style="max-width:480px;width:100%;max-height:88vh;overflow-y:auto;text-align:left;border-radius:20px 20px 0 0;">';
     html += '<p style="font-size:15px;font-weight:700;margin:0 0 4px;">Set restock date \u2014 ' + rows.length + ' piece' + (rows.length!==1?'s':'') + '</p>';
-    html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 12px;">Tick which ones share the same date, then tap that date. Repeat for the rest.</p>';
+    html += '<p style="font-size:12px;color:#9aa0a6;margin:0 0 10px;">Tick which ones share the same date, then tap that date. Repeat for the rest \u2014 pieces disappear from this list once they\u2019re done.</p>';
+    html += '<button class="btn-secondary" id="purchaseRestockSelectAllBtn" style="width:auto;padding:6px 12px;font-size:12px;margin-bottom:10px;">' + (allChecked ? 'Unselect all' : 'Select all') + '</button>';
 
     rows.forEach(function(r){
       var it = r.item, o = r.order;
@@ -5368,7 +5402,6 @@
       html += '<input type="checkbox" class="purchaseDateBatchChk custom-chk" data-item="' + it.id + '" ' + (batchChecked?'checked':'') + ' style="width:22px;height:22px;flex-shrink:0;pointer-events:none;">';
       html += '<img src="' + (it.thumb_url||it.photo_url) + '" style="width:40px;height:50px;object-fit:cover;border-radius:6px;flex-shrink:0;">';
       html += '<span style="font-size:12.5px;color:#e8eaed;flex:1;">#' + esc(o.id) + (it.size?' \u00b7 '+esc(it.size):'') + '</span>';
-      if(it.restock_date){ html += '<span style="font-size:11.5px;color:#f2a76a;font-weight:700;">' + esc(formatRestockDate(it.restock_date)) + '</span>'; }
       html += '</div>';
     });
 
@@ -5392,6 +5425,12 @@
         state.purchaseBatchChk[id] = state.purchaseBatchChk[id] === true ? false : true;
         openPurchaseRestockModal();
       });
+    });
+    var selectAllBtn = document.getElementById('purchaseRestockSelectAllBtn');
+    if(selectAllBtn) selectAllBtn.addEventListener('click', function(){
+      var allChecked = ids.every(function(id){ return state.purchaseBatchChk[id] === true; });
+      ids.forEach(function(id){ state.purchaseBatchChk[id] = !allChecked; });
+      openPurchaseRestockModal();
     });
     document.querySelectorAll('.purchaseRestockChip').forEach(function(chip){
       chip.addEventListener('click', function(){
@@ -5886,6 +5925,7 @@
 
     rows.forEach(function(r){
       var o = r.order, it = r.item;
+      var isLocked = it.price != null && !state.billingEditingItems[it.id];
       html += '<div class="order-card" style="display:flex;gap:12px;align-items:center;">';
       html += '<div class="billingPhotoWrap billingThumb" data-src="' + it.photo_url + '"><img src="' + (it.thumb_url || it.photo_url) + '"><button class="album-zoom-btn billingZoomBtn" data-src="' + it.photo_url + '" aria-label="View full size"><svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"></circle><line x1="15.5" y1="15.5" x2="21" y2="21"></line></svg></button></div>';
       html += '<div style="flex:1;min-width:0;">';
@@ -5893,9 +5933,16 @@
       html += '<div style="font-size:13px;color:#e8eaed;font-weight:600;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(o.reseller_name||'') + '</div>';
       if(it.size){ html += '<div style="font-size:12px;color:#9aa0a6;">Size: ' + esc(it.size) + '</div>'; }
       html += '</div>';
-      html += '<div style="flex-shrink:0;display:flex;align-items:center;gap:4px;">';
-      html += '<span style="color:#9aa0a6;font-size:14px;">\u20b9</span>';
-      html += '<input type="number" min="0" inputmode="decimal" enterkeyhint="next" class="billingPriceInput" data-item="' + it.id + '" placeholder="\u2014" value="' + (it.price != null ? esc(String(it.price)) : '') + '" style="width:84px;padding:8px 10px;">';
+      html += '<div style="flex-shrink:0;display:flex;align-items:center;gap:6px;">';
+      if(isLocked){
+        html += '<span style="font-size:15px;font-weight:700;color:#7fd99a;">\u20b9' + esc(String(it.price)) + '</span>';
+        html += '<span style="color:#7fd99a;font-size:16px;">\u2705</span>';
+        html += '<button class="billingEditBtn" data-item="' + it.id + '" aria-label="Edit price" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;padding:5px 8px;font-size:13px;">\u270f\ufe0f</button>';
+      }else{
+        html += '<span style="color:#9aa0a6;font-size:14px;">\u20b9</span>';
+        html += '<input type="number" min="0" inputmode="decimal" enterkeyhint="done" class="billingPriceInput" data-item="' + it.id + '" placeholder="\u2014" value="' + (it.price != null ? esc(String(it.price)) : '') + '" style="width:76px;padding:8px 8px;">';
+        html += '<button class="billingSaveBtn" data-item="' + it.id + '" aria-label="Save price" style="background:#2f8f5b;border:none;border-radius:6px;color:#fff;cursor:pointer;padding:7px 10px;font-size:14px;font-weight:700;">\u2713</button>';
+      }
       html += '</div>';
       html += '</div>';
     });
@@ -5978,22 +6025,46 @@
     document.querySelectorAll('.billingZoomBtn').forEach(function(btn){
       btn.addEventListener('click', function(e){ e.stopPropagation(); openZoom(btn.getAttribute('data-src')); });
     });
+
+    // Saves the price, locks the row (green tick), and moves on to the next
+    // still-unlocked row. This is the one thing both the checkmark button
+    // and Enter key ultimately call, since Enter isn't reliable everywhere â€”
+    // iPhone's numeric keypad has no Enter/Go key at all, so the on-screen
+    // checkmark button is the one mechanism guaranteed to work on every device.
+    async function confirmBillingPriceRow(itemId){
+      var inp = document.querySelector('.billingPriceInput[data-item="' + itemId + '"]');
+      if(!inp) return;
+      var val = inp.value.trim();
+      if(val === ''){ showToast('Enter an amount first'); return; }
+      await updateItemPrice(itemId, val);
+      delete state.billingEditingItems[itemId];
+      var content = document.getElementById('tabContent');
+      content.innerHTML = renderBillingTab();
+      wireBillingTab();
+      var remainingInputs = Array.prototype.slice.call(document.querySelectorAll('.billingPriceInput'));
+      if(remainingInputs[0]){ remainingInputs[0].focus(); remainingInputs[0].select(); }
+    }
+
+    document.querySelectorAll('.billingSaveBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){ confirmBillingPriceRow(parseInt(btn.getAttribute('data-item'), 10)); });
+    });
     document.querySelectorAll('.billingPriceInput').forEach(function(inp){
-      inp.addEventListener('change', function(){
-        updateItemPrice(parseInt(inp.getAttribute('data-item'), 10), inp.value.trim());
-      });
       inp.addEventListener('keydown', function(e){
         if(e.key === 'Enter'){
           e.preventDefault();
-          var allInputs = Array.prototype.slice.call(document.querySelectorAll('.billingPriceInput'));
-          var idx = allInputs.indexOf(inp);
-          inp.blur(); // saves via the change listener above
-          var next = allInputs[idx + 1];
-          if(next){
-            next.focus();
-            next.select();
-          }
+          confirmBillingPriceRow(parseInt(inp.getAttribute('data-item'), 10));
         }
+      });
+    });
+    document.querySelectorAll('.billingEditBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var itemId = parseInt(btn.getAttribute('data-item'), 10);
+        state.billingEditingItems[itemId] = true;
+        var content = document.getElementById('tabContent');
+        content.innerHTML = renderBillingTab();
+        wireBillingTab();
+        var inp = document.querySelector('.billingPriceInput[data-item="' + itemId + '"]');
+        if(inp){ inp.focus(); inp.select(); }
       });
     });
   }
