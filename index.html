@@ -817,7 +817,7 @@
   ];
 
   async function switchToAccount(targetUserId, label){
-    try{
+    async function attemptFetch(){
       var resp = await fetch('/api/switch-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.session.access_token },
@@ -825,6 +825,22 @@
       });
       var data = await resp.json();
       if(!resp.ok) throw new Error(data.error || 'Could not switch');
+      return data;
+    }
+    try{
+      var data;
+      try{
+        data = await attemptFetch();
+      }catch(err){
+        // A pure network failure is usually a one-off hiccup — worth one
+        // silent retry before bothering the person with an error.
+        if(err && err.message === 'Failed to fetch'){
+          await new Promise(function(r){ setTimeout(r, 1500); });
+          data = await attemptFetch();
+        }else{
+          throw err;
+        }
+      }
       var originalSession = { access_token: state.session.access_token, refresh_token: state.session.refresh_token };
       var { error } = await sb.auth.verifyOtp({ token_hash: data.hashed_token, type: 'magiclink' });
       if(error) throw error;
