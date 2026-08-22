@@ -138,12 +138,12 @@
   }
   input[type=checkbox].custom-chk:checked { background: #d97a3f; border-color: #d97a3f; }
   input[type=checkbox].custom-chk:checked::after {
-    content: ''; position: absolute; left: 7px; top: 3px; width: 6px; height: 11px;
-    border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
+    content: ''; position: absolute; left: 50%; top: 50%; width: 6px; height: 11px;
+    border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: translate(-50%, -60%) rotate(45deg);
   }
   input[type=checkbox].custom-chk.urgent-chk { width: 26px; height: 26px; border-color: #8a6d6d; }
   input[type=checkbox].custom-chk.urgent-chk:checked { background: #d43b3b; border-color: #d43b3b; box-shadow: 0 0 0 3px rgba(212,59,59,0.25); }
-  input[type=checkbox].custom-chk.urgent-chk:checked::after { left: 8px; top: 4px; width: 7px; height: 12px; }
+  input[type=checkbox].custom-chk.urgent-chk:checked::after { width: 7px; height: 12px; }
   select { cursor: pointer; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239aa0a6' stroke-width='2.5'><path d='M6 9l6 6 6-6'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px; }
   select:invalid { color: #80868b; }
   input::placeholder, textarea::placeholder { color: #80868b; }
@@ -386,6 +386,12 @@
   }
   .billing-recent-panel.open { transform: translateX(0); }
   .billingPhotoWrap { position: relative; flex-shrink: 0; width: 130px; aspect-ratio: 3/4; border-radius: 8px; overflow: hidden; background: #202124; cursor: zoom-in; }
+  @keyframes billingBlink {
+    0%, 100% { box-shadow: 0 0 0 2px transparent; }
+    25%, 75% { box-shadow: 0 0 0 2px #d97a3f; }
+    50% { box-shadow: 0 0 0 2px transparent; }
+  }
+  .billing-row-blink { animation: billingBlink 0.5s ease-in-out 3; }
   .billingPhotoWrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
   @media (max-width: 699px) {
     .billingPhotoWrap { width: 112px; height: 150px; aspect-ratio: auto; }
@@ -416,7 +422,6 @@
     #shipPrintArea, #shipPrintArea * { visibility: visible; }
     #shipPrintArea {
       position: absolute; left: 0; top: 0; width: 100%; background: #fff; color: #111;
-      column-count: 2; column-gap: 18px;
     }
     .print-slip { background: #fff !important; }
   }
@@ -513,6 +518,8 @@
     billingQuery: '',
     billingUnpricedOnly: false,
     billingEditingItems: {},
+    billingJustSaved: {},
+    globalSearchQuery: '',
     cashTopups: [],
     gpayTopups: [],
     topupAmountVal: '',
@@ -1576,6 +1583,26 @@
     });
   }
 
+  // JsBarcode loads with `defer` for page-load speed, so on a slow
+  // connection it's possible (if rare) for a print action to fire before
+  // it's ready. Poll briefly instead of silently skipping the barcode.
+  function waitForJsBarcode(){
+    return new Promise(function(resolve){
+      if(window.JsBarcode){ resolve(true); return; }
+      var attempts = 0;
+      var interval = setInterval(function(){
+        attempts++;
+        if(window.JsBarcode){
+          clearInterval(interval);
+          resolve(true);
+        }else if(attempts >= 30){ // ~3 seconds
+          clearInterval(interval);
+          resolve(false);
+        }
+      }, 100);
+    });
+  }
+
   async function printAndMarkShipped(){
     var selections = Object.values(state.shipSelection);
     if(selections.length === 0) return;
@@ -1611,11 +1638,12 @@
     });
 
     document.getElementById('shipPrintArea').innerHTML = slipsHtml;
+    var jsBarcodeReady = await waitForJsBarcode();
     orderIds.forEach(function(orderId){
       var ord = state.orders.find(function(o){ return o.id === orderId; });
       if(!ord) return;
       var imgEl = document.getElementById('barcode_' + orderId);
-      if(imgEl && window.JsBarcode){
+      if(imgEl && jsBarcodeReady){
         try{
           var canvas = document.createElement('canvas');
           JsBarcode(canvas, ord.id, { format: 'CODE128', displayValue: false, height: 40, margin: 4, width: 2, background: '#ffffff', lineColor: '#000000' });
@@ -3727,6 +3755,43 @@
     return html;
   }
 
+  function openGlobalSearchModal(){
+    var html = '<div class="modal-overlay" style="align-items:flex-start;padding-top:40px;"><div class="modal-box" style="max-width:480px;width:100%;max-height:85vh;overflow-y:auto;text-align:left;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+    html += '<p style="font-size:15px;font-weight:700;margin:0;">\ud83d\udd0d Search orders</p>';
+    html += '<button id="globalSearchCloseBtn" style="background:none;border:none;color:#9aa0a6;font-size:22px;cursor:pointer;line-height:1;">\u00d7</button></div>';
+    html += '<input class="searchbar" type="text" id="globalSearchInput" autocomplete="off" placeholder="Order id, reseller, address, courier, tracking..." value="' + esc(state.globalSearchQuery||'') + '">';
+    html += '<div id="globalSearchResults"></div>';
+    html += '</div></div>';
+    document.getElementById('modalHost').innerHTML = html;
+    document.getElementById('globalSearchCloseBtn').addEventListener('click', closeModal);
+    var inp = document.getElementById('globalSearchInput');
+    inp.focus();
+    inp.addEventListener('input', function(){
+      state.globalSearchQuery = inp.value;
+      renderGlobalSearchResults();
+    });
+    renderGlobalSearchResults();
+  }
+
+  function renderGlobalSearchResults(){
+    var resultsEl = document.getElementById('globalSearchResults');
+    if(!resultsEl) return;
+    var q = (state.globalSearchQuery || '').trim().toLowerCase();
+    if(q === ''){
+      resultsEl.innerHTML = '<div class="empty-state">Start typing an order id, reseller name, address, courier, or tracking number.</div>';
+      return;
+    }
+    var matches = state.orders.filter(function(o){
+      var itemShops = (o.items||[]).map(function(it){ return it.shop_name || ''; }).join(' ');
+      var itemSizes = (o.items||[]).map(function(it){ return it.size || ''; }).join(' ');
+      var hay = (o.reseller_name+' '+o.address+' '+o.id+' '+(o.courier||'')+' '+(o.tracking_number||'')+' '+(o.cancel_reason||'')+' '+itemShops+' '+itemSizes).toLowerCase();
+      return hay.indexOf(q) !== -1;
+    }).slice(0, 30);
+    resultsEl.innerHTML = renderOrderCardsHtml(matches);
+    wireOrderCards();
+  }
+
   function wireOrderCards(){
     document.querySelectorAll('.orderPhoto').forEach(function(img){
       img.addEventListener('click', function(){ openZoom(img.getAttribute('data-src')); });
@@ -4143,7 +4208,7 @@
     if(state.loading){ return '<div class="loading-state"><span class="spinner"></span>Loading orders...</div>'; }
     var html = '<input class="searchbar" type="text" id="searchInput" placeholder="Search reseller, size, address, order id, courier" value="' + esc(state.query) + '">';
     html += '<div class="filters">';
-    ['pending','shipped','cancelled','all'].forEach(function(f){
+    ['all','pending','shipped','cancelled'].forEach(function(f){
       html += '<div class="filter-chip' + (state.filter===f?' active':'') + '" data-filter="' + f + '">' + f.charAt(0).toUpperCase()+f.slice(1) + '</div>';
     });
     html += '</div>';
@@ -4722,10 +4787,10 @@
         var res = await fetch(entry.item.photo_url);
         var blob = await res.blob();
         var pieceId = entry.order.id + '-' + (entry.itemIndex+1);
-        return new File([blob], shopName + '_' + pieceId + '.jpg', { type: 'image/jpeg' });
+        return new File([blob], 'piece_' + pieceId + '.jpg', { type: 'image/jpeg' });
       }));
 
-      var shareData = { files: files, text: shopName };
+      var shareData = { files: files };
       if(navigator.canShare && !navigator.canShare(shareData)){
         showToast('Your phone can\u2019t share this many photos at once \u2014 try fewer');
         if(btn){ btn.disabled = false; btn.textContent = originalText; }
@@ -5458,8 +5523,17 @@
     document.querySelectorAll('.purchaseDateRow').forEach(function(row){
       row.addEventListener('click', function(){
         var id = parseInt(row.getAttribute('data-item'), 10);
-        state.purchaseBatchChk[id] = state.purchaseBatchChk[id] === true ? false : true;
-        openPurchaseRestockModal();
+        var nowChecked = state.purchaseBatchChk[id] !== true;
+        state.purchaseBatchChk[id] = nowChecked;
+        // Targeted update only — rebuilding the whole modal here is what
+        // caused the visible flash/blink on every single tap.
+        var chk = row.querySelector('.purchaseDateBatchChk');
+        if(chk) chk.checked = nowChecked;
+        var selectAllBtn = document.getElementById('purchaseRestockSelectAllBtn');
+        if(selectAllBtn){
+          var allChecked = ids.length > 0 && ids.every(function(id2){ return state.purchaseBatchChk[id2] === true; });
+          selectAllBtn.textContent = allChecked ? 'Unselect all' : 'Select all';
+        }
       });
     });
     var selectAllBtn = document.getElementById('purchaseRestockSelectAllBtn');
@@ -5927,7 +6001,7 @@
       (o.items||[]).forEach(function(it, idx){
         var hay = (o.reseller_name + ' ' + o.id + ' ' + (it.size||'')).toLowerCase();
         if(q && hay.indexOf(q) === -1) return;
-        if(state.billingUnpricedOnly && it.price != null && it.price !== '') return;
+        if(state.billingUnpricedOnly && it.price != null && it.price !== '' && !state.billingJustSaved[it.id]) return;
         rows.push({ order: o, item: it, pieceLabel: o.id + '-' + (idx+1) });
       });
     });
@@ -5968,6 +6042,11 @@
       html += '<div><span class="order-id">#' + esc(r.pieceLabel) + '</span>' + (o.urgent ? ' <span style="font-size:11px;color:#f28b82;">\ud83d\udea8</span>' : '') + '</div>';
       html += '<div style="font-size:13px;color:#e8eaed;font-weight:600;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(o.reseller_name||'') + '</div>';
       if(it.size){ html += '<div style="font-size:12px;color:#9aa0a6;">Size: ' + esc(it.size) + '</div>'; }
+      if(it.purchased && it.purchase_rate != null){
+        html += '<div style="font-size:12px;color:#f2a76a;font-weight:600;margin-top:2px;">Bought: \u20b9' + esc(String(it.purchase_rate)) + '</div>';
+      }else{
+        html += '<div style="font-size:11px;color:#5f6368;margin-top:2px;">Not purchased yet</div>';
+      }
       html += '</div>';
       html += '<div style="flex-shrink:0;display:flex;align-items:center;gap:6px;">';
       if(isLocked){
@@ -5976,7 +6055,7 @@
         html += '<button class="billingEditBtn" data-item="' + it.id + '" aria-label="Edit price" style="background:none;border:1px solid #3c4043;border-radius:6px;color:#9aa0a6;cursor:pointer;padding:5px 8px;font-size:13px;">\u270f\ufe0f</button>';
       }else{
         html += '<span style="color:#9aa0a6;font-size:14px;">\u20b9</span>';
-        html += '<input type="number" min="0" inputmode="decimal" enterkeyhint="done" class="billingPriceInput" data-item="' + it.id + '" placeholder="\u2014" value="' + (it.price != null ? esc(String(it.price)) : '') + '" style="width:76px;padding:8px 8px;">';
+        html += '<input type="number" min="0" inputmode="decimal" enterkeyhint="done" class="billingPriceInput" data-item="' + it.id + '" placeholder="\u2014" value="' + (it.price != null ? esc(String(it.price)) : '') + '" style="width:106px;padding:8px 8px;">';
         html += '<button class="billingSaveBtn" data-item="' + it.id + '" aria-label="Save price" style="background:#2f8f5b;border:none;border-radius:6px;color:#fff;cursor:pointer;padding:7px 10px;font-size:14px;font-weight:700;">\u2713</button>';
       }
       html += '</div>';
@@ -6073,12 +6152,21 @@
       var val = inp.value.trim();
       if(val === ''){ showToast('Enter an amount first'); return; }
       await updateItemPrice(itemId, val);
+      state.billingJustSaved[itemId] = true;
       delete state.billingEditingItems[itemId];
       var content = document.getElementById('tabContent');
       content.innerHTML = renderBillingTab();
       wireBillingTab();
       var remainingInputs = Array.prototype.slice.call(document.querySelectorAll('.billingPriceInput'));
-      if(remainingInputs[0]){ remainingInputs[0].focus(); remainingInputs[0].select(); }
+      if(remainingInputs[0]){
+        remainingInputs[0].focus();
+        remainingInputs[0].select();
+        var nextRow = remainingInputs[0].closest('.order-card');
+        if(nextRow){
+          nextRow.classList.add('billing-row-blink');
+          setTimeout(function(){ nextRow.classList.remove('billing-row-blink'); }, 1500);
+        }
+      }
     }
 
     document.querySelectorAll('.billingSaveBtn').forEach(function(btn){
@@ -6751,6 +6839,8 @@
     if(isReseller()){
       var unreadCount = state.resellerNotifications.filter(function(n){ return !n.read_at; }).length;
       shellHtml += '<div class="notif-row no-print"><button class="notif-btn" id="notifBellBtn" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>' + (unreadCount > 0 ? '<span class="notif-badge">' + (unreadCount > 9 ? '9+' : unreadCount) + '</span>' : '') + '</button></div>';
+    }else if(isAdminStaff()){
+      shellHtml += '<div class="notif-row no-print"><button class="notif-btn" id="globalSearchBtn" aria-label="Search orders"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eaed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></button></div>';
     }
     shellHtml += '<div class="app-brand" id="logoReloadBtn" style="cursor:pointer;">GURUKRUPA</div><div class="app-brand-sub">SAREES</div></div>';
     shellHtml += '<div class="tabs no-print">';
@@ -6775,8 +6865,8 @@
       shellHtml += '<button id="manageListsBtn">Manage Lists</button>';
       shellHtml += '<button id="printHistoryBtn">Print History</button>';
       shellHtml += '<button id="billingBtn">Billing</button>';
-      shellHtml += '<button id="purchaseLedgerBtn">Purchase Ledger</button>';
       if(isSuperAdmin()){
+        shellHtml += '<button id="purchaseLedgerBtn">Purchase Ledger</button>';
         shellHtml += '<button id="staffAlertsBtn">\u26a0\ufe0f Staff Alerts</button>';
         shellHtml += '<button id="manageAccountsBtn">\ud83d\udc65 Manage Accounts</button>';
         if(!state.accountSwitch){ shellHtml += '<button id="switchAccountBtn">\ud83d\udd00 Switch account</button>'; }
@@ -6872,6 +6962,8 @@
     document.getElementById('logoReloadBtn').addEventListener('click', function(){ window.location.reload(); });
     var notifBtn = document.getElementById('notifBellBtn');
     if(notifBtn) notifBtn.addEventListener('click', openResellerNotifications);
+    var globalSearchBtn = document.getElementById('globalSearchBtn');
+    if(globalSearchBtn) globalSearchBtn.addEventListener('click', openGlobalSearchModal);
     document.getElementById('sidebarCloseBtn').addEventListener('click', closeSidebar);
     document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
 
